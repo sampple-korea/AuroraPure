@@ -17,12 +17,15 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.CRC32
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
@@ -34,6 +37,8 @@ class RemoteApkSplitReader(
     private val context: Context,
     private val httpClient: PureHttpClient
 ) {
+    private val cacheLocks = ConcurrentHashMap<String, Mutex>()
+
     data class ApkDeliveryMetadata(
         val identity: ApkManifestReader.Identity,
         val languageSplits: List<LanguageSplit>
@@ -61,7 +66,8 @@ class RemoteApkSplitReader(
                 .map { entry -> readEntry(base, entry) }
             ApkDeliveryMetadata(identity, SplitManifestReader.readDocuments(documents))
         } catch (exception: RangeUnavailableException) {
-            val cached = downloadAndCache(base)
+            val cached = cacheLocks.computeIfAbsent(cacheKey(base)) { Mutex() }
+                .withLock { downloadAndCache(base) }
             ApkDeliveryMetadata(
                 identity = ApkManifestReader.read(cached),
                 languageSplits = SplitManifestReader.read(cached)
@@ -260,6 +266,10 @@ class RemoteApkSplitReader(
         }
 
         private fun cacheFile(context: Context, artifact: ArtifactPlan): File {
+            return cacheRoot(context).resolve("${cacheKey(artifact)}.apk")
+        }
+
+        private fun cacheKey(artifact: ArtifactPlan): String {
             val identity = listOf(
                 artifact.ownerPackage,
                 artifact.ownerVersionCode.toString(),
@@ -270,7 +280,7 @@ class RemoteApkSplitReader(
             val key = MessageDigest.getInstance("SHA-256")
                 .digest(identity.toByteArray())
                 .joinToString("") { "%02x".format(it) }
-            return cacheRoot(context).resolve("$key.apk")
+            return key
         }
 
         private fun cacheRoot(context: Context) = context.cacheDir.resolve("pure-language-discovery")

@@ -21,8 +21,14 @@ import java.util.Base64
 import java.util.Locale
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class PlayGateway(
@@ -32,6 +38,7 @@ class PlayGateway(
 ) {
     private val artifactCache = ArtifactCache(cacheRoot.resolve("artifacts"), http)
     private val auth = ConcurrentHashMap<String, AuthData>()
+    private val credentialsLock = Any()
     @Volatile private var credentials: Credentials? = null
 
     suspend fun search(query: String): List<AppInfo> = withContext(Dispatchers.IO) {
@@ -57,34 +64,41 @@ class PlayGateway(
         onProbe: (completed: Int, profile: DeliveryProfile) -> Unit = { _, _ -> }
     ): List<DeliveryVariant> = withContext(Dispatchers.IO) {
         require(maxSdk >= MIN_ANDROID_API) { "Android API must be 21 or newer" }
-        val snapshots = mutableListOf<Snapshot>()
-        var completed = 0
-        architecture.variants.forEach { abi ->
-            density.densities.forEach { dpi ->
-                var sdk = maxSdk
-                val visited = mutableSetOf<Int>()
-                while (sdk >= MIN_ANDROID_API && visited.add(sdk)) {
-                    val profile = DeliveryProfile(abi, dpi, sdk)
-                    try {
-                        val resolved = resolveProfile(
-                            packageName,
-                            profile,
-                            mutableMapOf(),
-                            resolveLanguages = false
-                        )
-                        snapshots += Snapshot(profile, resolved)
-                        val nextSdk = resolved.minSdk - 1
-                        if (nextSdk < MIN_ANDROID_API || nextSdk >= sdk) break
-                        sdk = nextSdk
-                    } catch (error: Exception) {
-                        if (!isUnsupported(error)) throw error
-                        break
-                    } finally {
-                        completed += 1
-                        onProbe(completed, profile)
+        val targets = architecture.variants.flatMap { abi ->
+            density.densities.map { dpi -> abi to dpi }
+        }
+        val started = AtomicInteger(0)
+        val snapshots = coroutineScope {
+            val limiter = Semaphore(DISCOVERY_PARALLELISM)
+            targets.map { (abi, dpi) ->
+                async {
+                    limiter.withPermit {
+                        val path = mutableListOf<Snapshot>()
+                        var sdk = maxSdk
+                        val visited = mutableSetOf<Int>()
+                        while (sdk >= MIN_ANDROID_API && visited.add(sdk)) {
+                            val profile = DeliveryProfile(abi, dpi, sdk)
+                            onProbe(started.incrementAndGet(), profile)
+                            try {
+                                val resolved = resolveProfile(
+                                    packageName,
+                                    profile,
+                                    mutableMapOf(),
+                                    resolveLanguages = false
+                                )
+                                path += Snapshot(profile, resolved)
+                                val nextSdk = resolved.minSdk - 1
+                                if (nextSdk < MIN_ANDROID_API || nextSdk >= sdk) break
+                                sdk = nextSdk
+                            } catch (error: Exception) {
+                                if (!isUnsupported(error)) throw error
+                                break
+                            }
+                        }
+                        path
                     }
                 }
-            }
+            }.awaitAll().flatten()
         }
         require(snapshots.isNotEmpty()) {
             "Google Play returned no APKs for the selected delivery scope"
@@ -204,7 +218,7 @@ class PlayGateway(
         return try {
             resolveProfileWithAuth(packageName, profile, session, languageCache, resolveLanguages)
         } catch (error: Exception) {
-            if (http.responseCode.value !in setOf(401, 403)) throw error
+            if (!isAuthFailure(error)) throw error
             auth.clear()
             credentials = null
             resolveProfileWithAuth(
@@ -392,33 +406,34 @@ class PlayGateway(
         return LanguageResolution(expectedByName.keys, resolved)
     }
 
-    private fun anonymousCredentials(profile: DeliveryProfile, properties: Properties): Credentials {
-        credentials?.let { return it }
-        val json = JsonObject().apply {
-            properties.stringPropertyNames().forEach { addProperty(it, properties.getProperty(it)) }
-        }
-        val response = http.postAuth(DISPENSER_URL, json.toString().toByteArray())
-        require(response.isSuccessful) {
-            when (response.code) {
-                400 -> "Anonymous service rejected the device profile"
-                403 -> "Anonymous service is unavailable for this network"
-                429 -> "Anonymous service is rate limited"
-                503 -> "Anonymous service is under maintenance"
-                else -> "Anonymous connection failed (HTTP ${response.code})"
+    private fun anonymousCredentials(profile: DeliveryProfile, properties: Properties): Credentials =
+        synchronized(credentialsLock) {
+            credentials?.let { return@synchronized it }
+            val json = JsonObject().apply {
+                properties.stringPropertyNames().forEach { addProperty(it, properties.getProperty(it)) }
+            }
+            val response = http.postAuth(DISPENSER_URL, json.toString().toByteArray())
+            require(response.isSuccessful) {
+                when (response.code) {
+                    400 -> "Anonymous service rejected the device profile"
+                    403 -> "Anonymous service is unavailable for this network"
+                    429 -> "Anonymous service is rate limited"
+                    503 -> "Anonymous service is under maintenance"
+                    else -> "Anonymous connection failed (HTTP ${response.code})"
+                }
+            }
+            val body = com.google.gson.JsonParser.parseString(String(response.responseBytes)).asJsonObject
+            Credentials(
+                email = body.get("email")?.asString.orEmpty(),
+                token = body.get("authToken")?.asString.orEmpty(),
+                sourceProfileId = profile.id
+            ).also {
+                require(it.email.isNotBlank() && it.token.isNotBlank()) {
+                    "Anonymous service returned incomplete credentials"
+                }
+                credentials = it
             }
         }
-        val body = com.google.gson.JsonParser.parseString(String(response.responseBytes)).asJsonObject
-        return Credentials(
-            email = body.get("email")?.asString.orEmpty(),
-            token = body.get("authToken")?.asString.orEmpty(),
-            sourceProfileId = profile.id
-        ).also {
-            require(it.email.isNotBlank() && it.token.isNotBlank()) {
-                "Anonymous service returned incomplete credentials"
-            }
-            credentials = it
-        }
-    }
 
     private fun buildAuth(credentials: Credentials, properties: Properties): AuthData =
         AuthHelper.using(http).build(
@@ -497,6 +512,11 @@ class PlayGateway(
                 )
         }
 
+    private fun isAuthFailure(error: Exception): Boolean =
+        generateSequence<Throwable>(error) { it.cause }.any { cause ->
+            cause is CliHttpClient.ProtocolHttpException && cause.status in setOf(401, 403)
+        }
+
     private data class Credentials(
         val email: String,
         val token: String,
@@ -560,5 +580,6 @@ class PlayGateway(
         const val DISPENSER_URL = "https://auroraoss.com/api/auth"
         private const val DELIVERY_OK = 1
         private const val DELIVERY_NOT_PURCHASED = 3
+        private const val DISCOVERY_PARALLELISM = 4
     }
 }

@@ -212,17 +212,25 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             try {
-                val variants = gateway.discoverVariants(selected.packageName) { completed, profile ->
+                val variants = gateway.discoverVariants(selected.packageName) { completed, active ->
                     _uiState.update { state ->
                         if (state.selected?.packageName != selected.packageName) state else {
                             state.copy(
-                                discoveryProbeCount = completed,
-                                discoveryProbeDescription = listOf(
-                                    profile.primaryAbi,
-                                    "${profile.densityDpi} dpi",
-                                    "Android ${DeviceProfile.androidRelease(profile.sdkVersion)} / " +
-                                        "API ${profile.sdkVersion}"
-                                ).joinToString(" · ")
+                                discoveryProbeCount = maxOf(
+                                    state.discoveryProbeCount,
+                                    completed
+                                ),
+                                discoveryProbeDescription = active
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.joinToString("\n") { profile ->
+                                        listOf(
+                                            profile.primaryAbi,
+                                            "${profile.densityDpi} dpi",
+                                            "Android ${DeviceProfile.androidRelease(profile.sdkVersion)} / " +
+                                                "API ${profile.sdkVersion}"
+                                        ).joinToString(" · ")
+                                    }
+                                    ?: state.discoveryProbeDescription
                             )
                         }
                     }

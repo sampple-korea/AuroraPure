@@ -34,11 +34,17 @@ import java.util.Locale
 import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.security.MessageDigest
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -116,41 +122,45 @@ class AuroraGateway(private val context: Context) {
 
     suspend fun discoverVariants(
         packageName: String,
-        onProbe: (completed: Int, profile: DeliveryProfile) -> Unit = { _, _ -> }
+        onProgress: (completed: Int, active: List<DeliveryProfile>) -> Unit = { _, _ -> }
     ): List<DeliveryVariant> = withContext(Dispatchers.IO) {
         val initial = DeviceProfile.completeDiscoveryProfiles(
             sdkVersions = listOf(LATEST_SUPPORTED_ANDROID_API)
         )
-        val snapshots = mutableListOf<ProfileSnapshot>()
-        var completed = 0
+        val completed = AtomicInteger(0)
+        val active = linkedSetOf<DeliveryProfile>()
+        val progressLock = Any()
 
-        initial.forEach { initialProfile ->
-            // Each ABI × DPI pair follows its own manifest minSdk boundaries. A low-density
-            // result must never cause a higher-density Android tier to be skipped.
-            var sdkVersion = LATEST_SUPPORTED_ANDROID_API
-            val visited = mutableSetOf<Int>()
-            while (sdkVersion >= MIN_SUPPORTED_ANDROID_API && visited.add(sdkVersion)) {
-                val profile = initialProfile.copy(sdkVersion = sdkVersion)
-                onProbe(completed, profile)
-                try {
-                    val resolved = resolveVariant(
-                        packageName = packageName,
-                        profile = profile,
-                        languageCache = mutableMapOf(),
-                        resolveLanguages = false
-                    )
-                    snapshots += ProfileSnapshot(profile, resolved)
-                    val nextSdk = resolved.minSdk - 1
-                    if (nextSdk < MIN_SUPPORTED_ANDROID_API || nextSdk >= sdkVersion) break
-                    sdkVersion = nextSdk
-                } catch (exception: Exception) {
-                    if (!isUnsupportedProfile(exception)) throw exception
-                    Log.i(TAG, "No delivery for ${profile.id}")
-                    break
-                } finally {
-                    completed += 1
-                }
+        fun reportStarted(profile: DeliveryProfile) {
+            val snapshot = synchronized(progressLock) {
+                active += profile
+                completed.get() to active.toList()
             }
+            onProgress(snapshot.first, snapshot.second)
+        }
+
+        fun reportFinished(profile: DeliveryProfile) {
+            val snapshot = synchronized(progressLock) {
+                active -= profile
+                completed.incrementAndGet() to active.toList()
+            }
+            onProgress(snapshot.first, snapshot.second)
+        }
+
+        val snapshots = coroutineScope {
+            val limiter = Semaphore(DISCOVERY_PARALLELISM)
+            initial.map { initialProfile ->
+                async {
+                    limiter.withPermit {
+                        discoverProfilePath(
+                            packageName = packageName,
+                            initialProfile = initialProfile,
+                            onStarted = ::reportStarted,
+                            onFinished = ::reportFinished
+                        )
+                    }
+                }
+            }.awaitAll().flatten()
         }
 
         require(snapshots.isNotEmpty()) {
@@ -200,6 +210,42 @@ class AuroraGateway(private val context: Context) {
         } else {
             listOf(aggregate) + groups
         }
+    }
+
+    private suspend fun discoverProfilePath(
+        packageName: String,
+        initialProfile: DeliveryProfile,
+        onStarted: (DeliveryProfile) -> Unit,
+        onFinished: (DeliveryProfile) -> Unit
+    ): List<ProfileSnapshot> {
+        val snapshots = mutableListOf<ProfileSnapshot>()
+        // Each ABI × DPI pair follows its own manifest minSdk boundaries. A low-density
+        // result must never cause a higher-density Android tier to be skipped.
+        var sdkVersion = LATEST_SUPPORTED_ANDROID_API
+        val visited = mutableSetOf<Int>()
+        while (sdkVersion >= MIN_SUPPORTED_ANDROID_API && visited.add(sdkVersion)) {
+            val profile = initialProfile.copy(sdkVersion = sdkVersion)
+            onStarted(profile)
+            try {
+                val resolved = resolveVariant(
+                    packageName = packageName,
+                    profile = profile,
+                    languageCache = mutableMapOf(),
+                    resolveLanguages = false
+                )
+                snapshots += ProfileSnapshot(profile, resolved)
+                val nextSdk = resolved.minSdk - 1
+                if (nextSdk < MIN_SUPPORTED_ANDROID_API || nextSdk >= sdkVersion) break
+                sdkVersion = nextSdk
+            } catch (exception: Exception) {
+                if (!isUnsupportedProfile(exception)) throw exception
+                Log.i(TAG, "No delivery for ${profile.id}")
+                break
+            } finally {
+                onFinished(profile)
+            }
+        }
+        return snapshots
     }
 
     suspend fun resolvePlan(
@@ -266,7 +312,7 @@ class AuroraGateway(private val context: Context) {
                 resolveLanguages
             )
         } catch (exception: Exception) {
-            if (httpClient.responseCode.value !in AUTH_FAILURE_CODES) throw exception
+            if (!isAuthFailure(exception)) throw exception
             Log.i(TAG, "Refreshing an expired ${profile.id} anonymous session")
             cachedAuth.clear()
             invalidateCredentials()
@@ -659,6 +705,11 @@ class AuroraGateway(private val context: Context) {
                 cause.message == "Google Play returned no APK files for this device"
         }
 
+    private fun isAuthFailure(exception: Exception): Boolean =
+        generateSequence<Throwable>(exception) { it.cause }.any { cause ->
+            cause is PureHttpClient.ProtocolHttpException && cause.status in AUTH_FAILURE_CODES
+        }
+
     private data class OwnedFile(
         val owner: App,
         val file: PlayFile,
@@ -703,6 +754,7 @@ class AuroraGateway(private val context: Context) {
         private const val MIN_SUPPORTED_ANDROID_API = 21
         private const val LATEST_SUPPORTED_ANDROID_API = 36
         private const val MAX_SELECTED_PROFILES = 64
+        private const val DISCOVERY_PARALLELISM = 4
         private val AUTH_FAILURE_CODES = setOf(401, 403)
     }
 }
