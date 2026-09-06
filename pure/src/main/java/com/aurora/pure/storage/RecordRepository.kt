@@ -33,18 +33,6 @@ class RecordRepository(private val context: Context) {
         get() = preferences.getString("custom_folder_uri", "").orEmpty()
         set(value) = preferences.edit().putString("custom_folder_uri", value).apply()
 
-    var architectureChoice: ArchitectureChoice
-        get() = ArchitectureChoice.fromStored(
-            preferences.getString("architecture_choice", "").orEmpty()
-        )
-        set(value) = preferences.edit().putString("architecture_choice", value.name).apply()
-
-    var densityChoice: DensityChoice
-        get() = DensityChoice.fromStored(
-            preferences.getString("density_choice", "").orEmpty()
-        )
-        set(value) = preferences.edit().putString("density_choice", value.name).apply()
-
     fun load(): List<DownloadRecord> {
         val raw = preferences.getString("records", "[]").orEmpty()
         return runCatching {

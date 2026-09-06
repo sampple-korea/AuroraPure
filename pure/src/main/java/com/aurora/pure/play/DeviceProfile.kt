@@ -32,6 +32,17 @@ object DeviceProfile {
         .distinct()
         .toList()
 
+    /** Every probe axis shown by the product, without a device-local pre-filter. */
+    fun completeDiscoveryProfiles(
+        sdkVersions: List<Int> = listOf(Build.VERSION.SDK_INT)
+    ): List<DeliveryProfile> = deliveryProfiles(
+        choice = ArchitectureChoice.UNIVERSAL,
+        densityChoice = DensityChoice.ALL,
+        supportedAbis = emptyList(),
+        currentDensityDpi = DensityChoice.STANDARD_DENSITIES.first(),
+        sdkVersions = sdkVersions
+    )
+
     fun deliveryProfiles(
         choice: ArchitectureChoice,
         densityChoice: DensityChoice = DensityChoice.CURRENT,

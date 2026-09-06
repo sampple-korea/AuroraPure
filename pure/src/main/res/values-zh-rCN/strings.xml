@@ -46,9 +46,11 @@
     <string name="density_current">当前 DPI</string>
     <string name="density_all">全部 DPI</string>
     <string name="density_explanation">全部 DPI 会探测 bundletool 标准密度：120、160、213、240、320、480 和 640 dpi。</string>
-    <string name="variant_discovery_explanation">先扫描 Google Play 的实际交付。Aurora Pure 仅合并返回同一真实 APK 集的组合，包括 ABI、DPI 和 Android 兼容性。</string>
     <string name="discover_variants">扫描实际变体</string>
     <string name="refresh_variants">刷新实际变体</string>
+    <string name="discovering_variants">正在检查可下载配置</string>
+    <string name="connecting_google_play">正在连接 Google Play…</string>
+    <string name="discovery_probe_count">已检查 %1$d 个配置</string>
     <string name="available_variants">可用交付变体</string>
     <string name="universal_variant">通用 · 已发现的全部最新版本集</string>
     <string name="combined_variant">合并 · 所选范围内的全部最新变体</string>
@@ -63,7 +65,7 @@
     <string name="languages">语言</string>
     <string name="language_files">语言文件</string>
     <string name="all_languages">全部可用语言包</string>
-    <string name="all_languages_explanation">Aurora Pure 会读取应用自身的 split 声明，并请求 Google Play 为它发布的全部语言 APK。此功能始终启用。</string>
+    <string name="all_languages_explanation">Aurora Pure 会读取应用的 split 声明，并请求 Google Play 为它发布的全部语言 APK。</string>
     <string name="delivery_profiles">交付配置</string>
     <string name="combined_variants_notice">此 .apks 可能含有多个设备配置的替代文件。分包 APK 安装器必须选择一组兼容的 base 和配置文件。</string>
     <string name="storage">存储</string>

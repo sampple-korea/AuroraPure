@@ -46,9 +46,11 @@
     <string name="density_current">現在の DPI</string>
     <string name="density_all">すべての DPI</string>
     <string name="density_explanation">すべての DPI では bundletool の標準密度 120、160、213、240、320、480、640 dpi を調査します。</string>
-    <string name="variant_discovery_explanation">まず Google Play の実際の配信を調査します。ABI、DPI、Android 互換性を含め、同じ実 APK セットを返した組み合わせだけをまとめて表示します。</string>
     <string name="discover_variants">実際のバリアントを調査</string>
     <string name="refresh_variants">実際のバリアントを更新</string>
+    <string name="discovering_variants">取得可能な構成を確認中</string>
+    <string name="connecting_google_play">Google Play に接続中…</string>
+    <string name="discovery_probe_count">%1$d件の構成を確認済み</string>
     <string name="available_variants">利用可能な配信バリアント</string>
     <string name="universal_variant">ユニバーサル · 検出した最新セットすべて</string>
     <string name="combined_variant">選択範囲を統合 · 最新バリアントすべて</string>
@@ -63,7 +65,7 @@
     <string name="languages">言語</string>
     <string name="language_files">言語ファイル</string>
     <string name="all_languages">利用可能なすべての言語パック</string>
-    <string name="all_languages_explanation">アプリ自身の split 宣言を読み、Google Play が公開するすべての言語 APK を要求します。この機能は常に有効です。</string>
+    <string name="all_languages_explanation">アプリの split 宣言を読み、Google Play が公開するすべての言語 APK を要求します。</string>
     <string name="delivery_profiles">配信プロファイル</string>
     <string name="combined_variants_notice">この .apks には複数端末プロファイル用の代替ファイルが含まれる場合があります。分割 APK インストーラーは互換性のある base／構成セットを一つ選択する必要があります。</string>
     <string name="storage">保存先</string>

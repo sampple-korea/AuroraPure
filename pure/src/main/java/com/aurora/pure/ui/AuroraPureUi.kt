@@ -280,14 +280,6 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                     DetailRow(stringResource(R.string.version_code), app.versionCode.takeIf { it > 0 }?.toString() ?: "—")
                     DetailRow(stringResource(R.string.file_layout), stringResource(R.string.checked_before_download))
                     DetailRow(stringResource(R.string.save_format), stringResource(R.string.single_apk) + " / " + stringResource(R.string.split_zip))
-                    DetailRow(
-                        stringResource(R.string.architecture),
-                        architectureText(state.architectureChoice)
-                    )
-                    DetailRow(
-                        stringResource(R.string.screen_density),
-                        densityText(state.densityChoice)
-                    )
                     DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
                     DetailRow(stringResource(R.string.current_device), android.os.Build.MODEL)
                     DetailRow(stringResource(R.string.checked_at), formatDate(app.checkedAt))
@@ -301,44 +293,48 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
         if (!app.isFree) item {
             Text(stringResource(R.string.paid_unavailable), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
         }
-        item {
-            ArchitectureSelector(
-                selected = state.architectureChoice,
-                onSelected = viewModel::setArchitectureChoice,
-                enabled = !state.busy
-            )
-            Spacer(Modifier.height(8.dp))
-            DensitySelector(
-                selected = state.densityChoice,
-                onSelected = viewModel::setDensityChoice,
-                enabled = !state.busy
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.variant_discovery_explanation),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        item {
+        if (state.discoveringVariants) item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(
+                        stringResource(R.string.discovering_variants),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        state.discoveryProbeDescription.ifBlank {
+                            stringResource(R.string.connecting_google_play)
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        stringResource(
+                            R.string.discovery_probe_count,
+                            state.discoveryProbeCount
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else item {
             OutlinedButton(
                 onClick = viewModel::discoverVariants,
                 enabled = app.isFree && !state.busy,
                 modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
-                if (state.discoveringVariants) {
-                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                } else {
-                    Text(
-                        stringResource(
-                            if (state.variants.isEmpty()) {
-                                R.string.discover_variants
-                            } else {
-                                R.string.refresh_variants
-                            }
-                        )
+                Text(
+                    stringResource(
+                        if (state.variants.isEmpty()) {
+                            R.string.discover_variants
+                        } else {
+                            R.string.refresh_variants
+                        }
                     )
-                }
+                )
             }
         }
         if (state.variants.isNotEmpty()) {
@@ -354,13 +350,6 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                     variant = variant,
                     selected = variant.id == state.selectedVariantId,
                     onClick = { viewModel.selectVariant(variant.id) }
-                )
-            }
-            item {
-                Text(
-                    stringResource(R.string.all_languages_explanation),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             item {
@@ -686,35 +675,6 @@ private fun SettingsScreen(
             OutlinedButton(onClick = viewModel::reconnect, enabled = !state.busy) { Text(stringResource(R.string.reconnect)) }
         }
         HorizontalDivider()
-        SettingsSection(stringResource(R.string.download_configuration)) {
-            ArchitectureSelector(
-                selected = state.architectureChoice,
-                onSelected = viewModel::setArchitectureChoice,
-                enabled = !state.busy
-            )
-            Text(
-                stringResource(R.string.architecture_explanation),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            DensitySelector(
-                selected = state.densityChoice,
-                onSelected = viewModel::setDensityChoice,
-                enabled = !state.busy
-            )
-            Text(
-                stringResource(R.string.density_explanation),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
-            Text(
-                stringResource(R.string.all_languages_explanation),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        HorizontalDivider()
         SettingsSection(stringResource(R.string.storage)) {
             Text(if (state.customFolderUri.isBlank()) stringResource(R.string.default_folder) else state.customFolderUri, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -746,57 +706,6 @@ private fun SettingsScreen(
         HorizontalDivider()
         TextButton(onClick = { viewModel.navigate(Screen.ABOUT) }) { Text(stringResource(R.string.about)) }
         Spacer(Modifier.height(24.dp))
-    }
-}
-
-@Composable
-private fun ArchitectureSelector(
-    selected: ArchitectureChoice,
-    onSelected: (ArchitectureChoice) -> Unit,
-    enabled: Boolean
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.architecture), fontWeight = FontWeight.SemiBold)
-        listOf(
-            ArchitectureChoice.UNIVERSAL to stringResource(R.string.architecture_universal),
-                ArchitectureChoice.BOTH to stringResource(R.string.architecture_both),
-                ArchitectureChoice.BIT_64 to stringResource(R.string.architecture_64),
-                ArchitectureChoice.BIT_32 to stringResource(R.string.architecture_32)
-        ).chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { (choice, label) ->
-                    FilterChip(
-                        selected = selected == choice,
-                        onClick = { onSelected(choice) },
-                        label = { Text(label) },
-                        enabled = enabled
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DensitySelector(
-    selected: DensityChoice,
-    onSelected: (DensityChoice) -> Unit,
-    enabled: Boolean
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.screen_density), fontWeight = FontWeight.SemiBold)
-        DensityChoice.entries.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { choice ->
-                    FilterChip(
-                        selected = selected == choice,
-                        onClick = { onSelected(choice) },
-                        label = { Text(densityText(choice)) },
-                        enabled = enabled
-                    )
-                }
-            }
-        }
     }
 }
 

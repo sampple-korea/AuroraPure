@@ -116,11 +116,13 @@ class AuroraGateway(private val context: Context) {
 
     suspend fun discoverVariants(
         packageName: String,
-        architectureChoice: ArchitectureChoice,
-        densityChoice: DensityChoice
+        onProbe: (completed: Int, profile: DeliveryProfile) -> Unit = { _, _ -> }
     ): List<DeliveryVariant> = withContext(Dispatchers.IO) {
-        val initial = DeviceProfile.deliveryProfiles(architectureChoice, densityChoice)
+        val initial = DeviceProfile.completeDiscoveryProfiles(
+            sdkVersions = listOf(LATEST_SUPPORTED_ANDROID_API)
+        )
         val snapshots = mutableListOf<ProfileSnapshot>()
+        var completed = 0
 
         initial.forEach { initialProfile ->
             // Each ABI × DPI pair follows its own manifest minSdk boundaries. A low-density
@@ -129,6 +131,7 @@ class AuroraGateway(private val context: Context) {
             val visited = mutableSetOf<Int>()
             while (sdkVersion >= MIN_SUPPORTED_ANDROID_API && visited.add(sdkVersion)) {
                 val profile = initialProfile.copy(sdkVersion = sdkVersion)
+                onProbe(completed, profile)
                 try {
                     val resolved = resolveVariant(
                         packageName = packageName,
@@ -144,12 +147,14 @@ class AuroraGateway(private val context: Context) {
                     if (!isUnsupportedProfile(exception)) throw exception
                     Log.i(TAG, "No delivery for ${profile.id}")
                     break
+                } finally {
+                    completed += 1
                 }
             }
         }
 
         require(snapshots.isNotEmpty()) {
-            "Google Play returned no APK files for the selected delivery profiles"
+            "Google Play returned no APK files for any supported delivery profile"
         }
         val groups = snapshots.groupBy { it.signature() }
             .values
@@ -181,14 +186,12 @@ class AuroraGateway(private val context: Context) {
                 artifactCount = latestArtifacts.size,
                 totalBytes = latestArtifacts.sumOf { it.size.coerceAtLeast(0) },
                 aggregate = true,
-                universal = architectureChoice == ArchitectureChoice.UNIVERSAL
+                universal = true
             )
         }
         if (aggregate == null) {
             groups.map { variant ->
-                if (architectureChoice == ArchitectureChoice.UNIVERSAL &&
-                    variant.architectures.toSet() == discoveredArchitectures
-                ) {
+                if (variant.architectures.toSet() == discoveredArchitectures) {
                     variant.copy(aggregate = true, universal = true)
                 } else {
                     variant

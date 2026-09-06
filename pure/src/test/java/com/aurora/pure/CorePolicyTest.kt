@@ -9,6 +9,7 @@ import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.DeliveryProfile
+import com.aurora.pure.data.DeliveryVariant
 import com.aurora.pure.data.DensityChoice
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.download.ResumePolicy
@@ -111,18 +112,52 @@ class CorePolicyTest {
 
     @Test
     fun universalAllDensityProfilesCoverFourAbisAndSevenStandardBuckets() {
-        val profiles = DeviceProfile.deliveryProfiles(
-            choice = ArchitectureChoice.UNIVERSAL,
-            densityChoice = DensityChoice.ALL,
-            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
-            currentDensityDpi = 420,
-            sdkVersions = listOf(35)
-        )
+        val profiles = DeviceProfile.completeDiscoveryProfiles(sdkVersions = listOf(35))
         assertEquals(28, profiles.size)
         assertEquals(ArchitectureVariant.entries.toSet(), profiles.map { it.variant }.toSet())
         assertEquals(DensityChoice.STANDARD_DENSITIES.toSet(), profiles.map { it.densityDpi }.toSet())
         assertEquals(28, profiles.map { it.id }.distinct().size)
     }
+
+    @Test
+    fun selectedVariantDerivesDownloadScopeAfterDiscovery() {
+        val arm64 = DeliveryProfile(
+            ArchitectureVariant.ARM_64,
+            ArchitectureVariant.ARM_64.platforms,
+            480,
+            36
+        )
+        val arm32 = DeliveryProfile(
+            ArchitectureVariant.ARM_32,
+            ArchitectureVariant.ARM_32.platforms,
+            320,
+            31
+        )
+        val individual = deliveryVariant(listOf(arm64), universal = false)
+        assertEquals(ArchitectureChoice.BIT_64, individual.downloadArchitectureChoice)
+        assertEquals(DensityChoice.XXHDPI, individual.downloadDensityChoice)
+
+        val universal = deliveryVariant(listOf(arm64, arm32), universal = true)
+        assertEquals(ArchitectureChoice.UNIVERSAL, universal.downloadArchitectureChoice)
+        assertEquals(DensityChoice.ALL, universal.downloadDensityChoice)
+    }
+
+    private fun deliveryVariant(
+        profiles: List<DeliveryProfile>,
+        universal: Boolean
+    ) = DeliveryVariant(
+        id = "result",
+        versionName = "1.0",
+        versionCode = 1,
+        minSdk = 29,
+        targetSdk = 36,
+        profiles = profiles,
+        downloadProfiles = profiles,
+        artifactCount = 1,
+        totalBytes = 1,
+        aggregate = universal,
+        universal = universal
+    )
 
     private fun plan() = DownloadPlan(
         id = "00000000-0000-4000-8000-000000000000",

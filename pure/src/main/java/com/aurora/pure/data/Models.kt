@@ -128,6 +128,43 @@ data class DeliveryVariant(
         get() = profiles.map(DeliveryProfile::densityDpi).distinct().sorted()
     val testedSdkVersions: List<Int>
         get() = profiles.map(DeliveryProfile::sdkVersion).distinct().sorted()
+
+    /**
+     * The discovery screen always scans the complete matrix. These values describe only the
+     * selected result and are carried into the immutable download plan; they are not filters
+     * chosen before discovery.
+     */
+    val downloadArchitectureChoice: ArchitectureChoice
+        get() {
+            if (universal) return ArchitectureChoice.UNIVERSAL
+            val selected = downloadProfiles.map(DeliveryProfile::variant).distinct()
+            if (selected.size != 1) {
+                val armFamily = selected.all {
+                    it == ArchitectureVariant.ARM_64 || it == ArchitectureVariant.ARM_32
+                }
+                val x86Family = selected.all {
+                    it == ArchitectureVariant.X86_64 || it == ArchitectureVariant.X86
+                }
+                return if (armFamily || x86Family) {
+                    ArchitectureChoice.BOTH
+                } else {
+                    ArchitectureChoice.UNIVERSAL
+                }
+            }
+            return if (selected.single().bitness == 64) {
+                ArchitectureChoice.BIT_64
+            } else {
+                ArchitectureChoice.BIT_32
+            }
+        }
+
+    val downloadDensityChoice: DensityChoice
+        get() {
+            val selected = downloadProfiles.map(DeliveryProfile::densityDpi).distinct()
+            if (selected.size != 1) return DensityChoice.ALL
+            return DensityChoice.entries.firstOrNull { it.dpi == selected.single() }
+                ?: DensityChoice.CURRENT
+        }
 }
 
 data class AppSummary(
@@ -336,13 +373,15 @@ data class PureUiState(
     val variants: List<DeliveryVariant> = emptyList(),
     val selectedVariantId: String = "",
     val discoveringVariants: Boolean = false,
+    val discoveryProbeCount: Int = 0,
+    val discoveryProbeDescription: String = "",
     val records: List<DownloadRecord> = emptyList(),
     val busy: Boolean = false,
     val message: String = "",
     val connection: ConnectionState = ConnectionState.IDLE,
     val confirmation: DownloadConfirmation? = null,
-    val architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH,
-    val densityChoice: DensityChoice = DensityChoice.CURRENT,
+    val architectureChoice: ArchitectureChoice = ArchitectureChoice.UNIVERSAL,
+    val densityChoice: DensityChoice = DensityChoice.ALL,
     val themeMode: Int = 0,
     val keepScreenOn: Boolean = false,
     val customFolderUri: String = ""

@@ -23,6 +23,7 @@ import com.aurora.pure.data.Screen
 import com.aurora.pure.data.TaskStatus
 import com.aurora.pure.download.DownloadCoordinator
 import com.aurora.pure.play.AuroraGateway
+import com.aurora.pure.play.DeviceProfile
 import com.aurora.pure.storage.ExportRepository
 import com.aurora.pure.storage.RecordRepository
 import java.net.SocketException
@@ -50,8 +51,8 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         PureUiState(
             records = restoredRecords.sortedByDescending { it.createdAt },
-            architectureChoice = recordRepository.architectureChoice,
-            densityChoice = recordRepository.densityChoice,
+            architectureChoice = ArchitectureChoice.UNIVERSAL,
+            densityChoice = DensityChoice.ALL,
             themeMode = recordRepository.themeMode,
             keepScreenOn = recordRepository.keepScreenOn,
             customFolderUri = recordRepository.customFolderUri
@@ -60,6 +61,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<PureUiState> = _uiState.asStateFlow()
 
     private var activeJob: Job? = null
+    private var discoveryJob: Job? = null
     private var activeTaskId: String? = null
     private var cancelRequestedTaskId: String? = null
     private var foreground = true
@@ -103,15 +105,20 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openDetails(packageName: String) {
         if (_uiState.value.busy) return
+        discoveryJob?.cancel()
         viewModelScope.launch {
             setBusy(true)
+            var discoverAfterLoading = false
             runCatching { gateway.details(packageName) }
                 .onSuccess { app ->
+                    discoverAfterLoading = app.isFree
                     _uiState.update {
                         it.copy(
                             selected = app,
                             variants = emptyList(),
                             selectedVariantId = "",
+                            discoveryProbeCount = 0,
+                            discoveryProbeDescription = "",
                             screen = Screen.DETAILS,
                             message = ""
                         )
@@ -119,6 +126,9 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .onFailure(::showError)
             setBusy(false)
+            if (discoverAfterLoading && _uiState.value.selected?.packageName == packageName) {
+                discoverVariants()
+            }
         }
     }
 
@@ -126,13 +136,13 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         val selected = _uiState.value.selected ?: return
         if (!selected.isFree || _uiState.value.busy) return
         val state = _uiState.value
-        val architectureChoice = state.architectureChoice
-        val densityChoice = state.densityChoice
         val variant = state.variants.firstOrNull { it.id == state.selectedVariantId }
         if (variant == null) {
             discoverVariants()
             return
         }
+        val architectureChoice = variant.downloadArchitectureChoice
+        val densityChoice = variant.downloadDensityChoice
         viewModelScope.launch {
             Log.i(TAG, "Preparing delivery for ${selected.packageName}")
             setBusy(true)
@@ -186,39 +196,58 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun discoverVariants() {
         val selected = _uiState.value.selected ?: return
         if (!selected.isFree || _uiState.value.busy) return
-        val architectureChoice = _uiState.value.architectureChoice
-        val densityChoice = _uiState.value.densityChoice
-        viewModelScope.launch {
+        discoveryJob?.cancel()
+        discoveryJob = viewModelScope.launch {
             setBusy(true)
             _uiState.update {
                 it.copy(
                     connection = ConnectionState.CONNECTING,
                     discoveringVariants = true,
                     variants = emptyList(),
-                    selectedVariantId = ""
+                    selectedVariantId = "",
+                    discoveryProbeCount = 0,
+                    discoveryProbeDescription = "",
+                    architectureChoice = ArchitectureChoice.UNIVERSAL,
+                    densityChoice = DensityChoice.ALL
                 )
             }
-            runCatching {
-                gateway.discoverVariants(
-                    selected.packageName,
-                    architectureChoice,
-                    densityChoice
-                )
-            }.onSuccess { variants ->
-                val preferred = variants.firstOrNull { it.universal } ?: variants.first()
-                _uiState.update {
-                    it.copy(
-                        connection = ConnectionState.CONNECTED,
-                        variants = variants,
-                        selectedVariantId = preferred.id
-                    )
+            try {
+                val variants = gateway.discoverVariants(selected.packageName) { completed, profile ->
+                    _uiState.update { state ->
+                        if (state.selected?.packageName != selected.packageName) state else {
+                            state.copy(
+                                discoveryProbeCount = completed,
+                                discoveryProbeDescription = listOf(
+                                    profile.primaryAbi,
+                                    "${profile.densityDpi} dpi",
+                                    "Android ${DeviceProfile.androidRelease(profile.sdkVersion)} / " +
+                                        "API ${profile.sdkVersion}"
+                                ).joinToString(" · ")
+                            )
+                        }
+                    }
                 }
-            }.onFailure {
+                if (_uiState.value.selected?.packageName == selected.packageName) {
+                    _uiState.update {
+                        it.copy(
+                            connection = ConnectionState.CONNECTED,
+                            variants = variants,
+                            selectedVariantId = ""
+                        )
+                    }
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
                 _uiState.update { state -> state.copy(connection = ConnectionState.FAILED) }
-                showError(it)
+                showError(exception)
+            } finally {
+                if (_uiState.value.selected?.packageName == selected.packageName) {
+                    _uiState.update { it.copy(discoveringVariants = false) }
+                }
+                setBusy(false)
+                discoveryJob = null
             }
-            _uiState.update { it.copy(discoveringVariants = false) }
-            setBusy(false)
         }
     }
 
@@ -484,9 +513,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onForegroundChanged(isForeground: Boolean) {
         foreground = isForeground
-        if (!isForeground && activeTaskId != null) {
-            coordinator.pause()
-            activeJob?.cancel()
+        if (!isForeground) {
+            discoveryJob?.cancel()
+            if (activeTaskId != null) {
+                coordinator.pause()
+                activeJob?.cancel()
+            }
         }
     }
 
@@ -497,6 +529,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun navigateBack(): Boolean {
         val current = _uiState.value.screen
         if (current == Screen.SEARCH) return false
+        if (current == Screen.DETAILS) discoveryJob?.cancel()
         _uiState.update {
             it.copy(screen = if (current == Screen.ABOUT) Screen.SETTINGS else Screen.SEARCH)
         }
@@ -511,28 +544,6 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun setKeepScreenOn(enabled: Boolean) {
         recordRepository.keepScreenOn = enabled
         _uiState.update { it.copy(keepScreenOn = enabled) }
-    }
-
-    fun setArchitectureChoice(choice: ArchitectureChoice) {
-        recordRepository.architectureChoice = choice
-        _uiState.update {
-            it.copy(
-                architectureChoice = choice,
-                variants = emptyList(),
-                selectedVariantId = ""
-            )
-        }
-    }
-
-    fun setDensityChoice(choice: DensityChoice) {
-        recordRepository.densityChoice = choice
-        _uiState.update {
-            it.copy(
-                densityChoice = choice,
-                variants = emptyList(),
-                selectedVariantId = ""
-            )
-        }
     }
 
     fun setCustomFolder(uri: String) {
@@ -709,7 +720,8 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             raw == "Paid apps are not supported by Aurora Pure" ->
                 string(R.string.paid_unavailable)
             raw == "Google Play returned no APK files for this device" ||
-                raw == "Google Play returned no APK files for the selected delivery profiles" ->
+                raw == "Google Play returned no APK files for the selected delivery profiles" ||
+                raw == "Google Play returned no APK files for any supported delivery profile" ->
                 string(R.string.error_no_apk)
             raw == "Google Play returned no base APK for a package" ->
                 string(R.string.error_no_base_apk)

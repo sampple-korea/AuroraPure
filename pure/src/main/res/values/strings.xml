@@ -47,9 +47,11 @@
     <string name="density_current">Current</string>
     <string name="density_all">All DPI</string>
     <string name="density_explanation">All DPI probes bundletool’s standard density buckets: 120, 160, 213, 240, 320, 480, and 640 dpi.</string>
-    <string name="variant_discovery_explanation">Scan Google Play delivery first. Aurora Pure groups only combinations that returned the same real APK set, including ABI, DPI, and Android compatibility.</string>
     <string name="discover_variants">Scan actual variants</string>
     <string name="refresh_variants">Refresh actual variants</string>
+    <string name="discovering_variants">Checking available configurations</string>
+    <string name="connecting_google_play">Connecting to Google Play…</string>
+    <string name="discovery_probe_count">%1$d configurations checked</string>
     <string name="available_variants">Available delivery variants</string>
     <string name="universal_variant">Universal · all discovered latest-version sets</string>
     <string name="combined_variant">Combined · all latest variants in the selected scope</string>
@@ -64,7 +66,7 @@
     <string name="languages">Languages</string>
     <string name="language_files">Language files</string>
     <string name="all_languages">All available language packs</string>
-    <string name="all_languages_explanation">Aurora Pure reads the app’s own split declaration and requests every language APK Google Play advertises for it. This is always enabled.</string>
+    <string name="all_languages_explanation">Aurora Pure reads the app’s split declaration and requests every language APK Google Play advertises for it.</string>
     <string name="delivery_profiles">Delivery profiles</string>
     <string name="combined_variants_notice">This .apks may contain alternatives for multiple device profiles. A split-APK installer must select one compatible base/configuration set.</string>
     <string name="storage">Storage</string>
