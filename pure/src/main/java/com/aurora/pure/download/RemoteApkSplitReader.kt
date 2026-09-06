@@ -34,7 +34,14 @@ class RemoteApkSplitReader(
     private val context: Context,
     private val httpClient: PureHttpClient
 ) {
-    suspend fun read(base: ArtifactPlan): List<LanguageSplit> = withContext(Dispatchers.IO) {
+    data class ApkDeliveryMetadata(
+        val identity: ApkManifestReader.Identity,
+        val languageSplits: List<LanguageSplit>
+    )
+
+    suspend fun read(base: ArtifactPlan): List<LanguageSplit> = inspect(base).languageSplits
+
+    suspend fun inspect(base: ArtifactPlan): ApkDeliveryMetadata = withContext(Dispatchers.IO) {
         require(base.type == "BASE" && base.size > MIN_ZIP_BYTES) {
             "Google Play returned invalid base APK metadata"
         }
@@ -44,13 +51,21 @@ class RemoteApkSplitReader(
 
         try {
             val directory = readDirectory(base)
+            val manifestEntry = requireNotNull(
+                directory.entries.firstOrNull { it.name == MANIFEST_ENTRY }
+            ) { "APK has no AndroidManifest.xml" }
+            val identity = ApkManifestReader.readBytes(readEntry(base, manifestEntry))
             val documents = directory.entries
                 .filter { SPLIT_MANIFEST.matches(it.name) }
                 .sortedBy(RemoteZipEntry::name)
                 .map { entry -> readEntry(base, entry) }
-            SplitManifestReader.readDocuments(documents)
+            ApkDeliveryMetadata(identity, SplitManifestReader.readDocuments(documents))
         } catch (exception: RangeUnavailableException) {
-            SplitManifestReader.read(downloadAndCache(base))
+            val cached = downloadAndCache(base)
+            ApkDeliveryMetadata(
+                identity = ApkManifestReader.read(cached),
+                languageSplits = SplitManifestReader.read(cached)
+            )
         }
     }
 
@@ -212,6 +227,7 @@ class RemoteApkSplitReader(
 
     companion object {
         private val SPLIT_MANIFEST = Regex("^res/xml/splits[0-9]+\\.xml$")
+        private const val MANIFEST_ENTRY = "AndroidManifest.xml"
         private val CONTENT_RANGE = Regex("^bytes (\\d+)-(\\d+)/(\\d+)$")
         private const val MIN_ZIP_BYTES = 22L
         private const val MAX_EOCD_BYTES = 65_557

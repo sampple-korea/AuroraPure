@@ -17,11 +17,11 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.aurora.pure.data.DownloadOutcome
+import com.aurora.pure.data.DownloadedArtifact
 import com.aurora.pure.data.ExportResult
 import java.io.OutputStream
 import java.security.MessageDigest
-import java.time.Instant
-import java.time.format.DateTimeFormatter
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -29,8 +29,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 
 class ExportRepository(private val context: Context) {
     suspend fun export(outcome: DownloadOutcome, customTreeUri: String): ExportResult =
@@ -42,8 +40,8 @@ class ExportRepository(private val context: Context) {
                     "Not enough space to save the completed file"
                 }
             }
-            val extension = if (outcome.plan.isSingleApk) "apk" else "zip"
-            val mimeType = if (extension == "apk") APK_MIME else ZIP_MIME
+            val extension = if (outcome.plan.isSingleApk) "apk" else "apks"
+            val mimeType = if (extension == "apk") APK_MIME else APKS_MIME
             val baseName = buildBaseName(outcome)
             val requestedName = uniqueDisplayName("$baseName.$extension", customTreeUri)
             val target = if (customTreeUri.isBlank()) {
@@ -168,12 +166,23 @@ class ExportRepository(private val context: Context) {
     }
 
     private fun buildBaseName(outcome: DownloadOutcome): String {
-        val abiTag = outcome.plan.deliveryProfiles.joinToString("-") { it.primaryAbi }
+        val architectures = outcome.plan.deliveryProfiles
+            .map { it.variant }
+            .distinct()
+        val abiTag = if (architectures.size > 1) {
+            "universal"
+        } else {
+            architectures.singleOrNull()?.archiveDirectory.orEmpty()
+        }
+        val densities = outcome.plan.deliveryProfiles
+            .map { it.densityDpi }
+            .distinct()
+        val densityTag = densities.singleOrNull()?.let { "${it}dpi" }.orEmpty()
         return listOf(
             outcome.plan.packageName,
             "v${outcome.plan.versionCode}",
             abiTag,
-            "all-languages"
+            densityTag
         )
             .filter(String::isNotBlank)
             .joinToString("_")
@@ -182,25 +191,54 @@ class ExportRepository(private val context: Context) {
 
     private suspend fun writeArchive(outcome: DownloadOutcome, output: OutputStream) {
         ZipOutputStream(output.buffered()).use { zip ->
-            outcome.artifacts.forEach { item ->
+            zip.setLevel(Deflater.BEST_SPEED)
+            archiveEntries(outcome).forEach { archive ->
                 currentCoroutineContext().ensureActive()
-                zip.putNextEntry(ZipEntry(item.plan.relativePath))
-                item.file.inputStream().use { copyCancellable(it, zip) }
+                zip.putNextEntry(ZipEntry(archive.name))
+                archive.artifact.file.inputStream().use { copyCancellable(it, zip) }
                 zip.closeEntry()
             }
-
-            val metadata = metadata(outcome).toString(2).toByteArray()
-            zip.putNextEntry(ZipEntry("download-info.json"))
-            zip.write(metadata)
-            zip.closeEntry()
-
-            val sums = outcome.verification.files.joinToString("\n", postfix = "\n") {
-                "${it.sha256}  ${it.relativePath}"
-            }.toByteArray()
-            zip.putNextEntry(ZipEntry("SHA256SUMS.txt"))
-            zip.write(sums)
-            zip.closeEntry()
         }
+    }
+
+    private fun archiveEntries(outcome: DownloadOutcome): List<ArchiveArtifact> {
+        val items = outcome.artifacts.distinctBy {
+            it.plan.contentIdentity() ?: it.plan.relativePath
+        }
+        val baseNames = items.associateWith { item ->
+            safeArchiveName(item.plan.name.substringAfterLast('/').substringAfterLast('\\'))
+        }
+        val counts = baseNames.values.groupingBy(String::lowercase).eachCount()
+        val used = mutableSetOf<String>()
+        return items.map { item ->
+            val base = baseNames.getValue(item)
+            val needsPrefix = item.plan.isDependency || counts.getValue(base.lowercase()) > 1
+            val preferred = if (needsPrefix) {
+                listOf(
+                    item.plan.ownerPackage.takeIf { item.plan.isDependency }.orEmpty(),
+                    item.plan.variant.archiveDirectory,
+                    "${item.plan.densityDpi}dpi",
+                    "api${item.plan.sdkVersion}",
+                    base
+                ).filter(String::isNotBlank).joinToString("_")
+            } else {
+                base
+            }
+            var candidate = safeArchiveName(preferred)
+            var suffix = 2
+            while (!used.add(candidate.lowercase())) {
+                candidate = safeArchiveName(preferred.removeSuffix(".apk") + "_$suffix.apk")
+                suffix += 1
+            }
+            ArchiveArtifact(candidate, item)
+        }
+    }
+
+    private fun safeArchiveName(value: String): String {
+        val sanitized = value.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .takeUnless { it.isBlank() || it == "." || it == ".." }
+            ?: "artifact.apk"
+        return if (sanitized.endsWith(".apk", ignoreCase = true)) sanitized else "$sanitized.apk"
     }
 
     private suspend fun copyCancellable(input: java.io.InputStream, output: OutputStream) {
@@ -214,20 +252,23 @@ class ExportRepository(private val context: Context) {
     }
 
     private suspend fun verifySavedFile(uri: Uri, outcome: DownloadOutcome) {
-        val expected = outcome.verification.files.associate { it.relativePath to it.sha256 }
+        val expectedByPath = outcome.verification.files.associate { it.relativePath to it.sha256 }
         if (outcome.plan.isSingleApk) {
             val actual = requireNotNull(context.contentResolver.openInputStream(uri)) {
                 "Android could not reopen the saved file"
             }.use { digestCancellable(it) }
-            require(actual.equals(expected.values.single(), ignoreCase = true)) {
+            require(actual.equals(expectedByPath.values.single(), ignoreCase = true)) {
                 "Saved file verification failed"
             }
             return
         }
 
+        val expected = archiveEntries(outcome).associate { archive ->
+            archive.name to requireNotNull(expectedByPath[archive.artifact.plan.relativePath]) {
+                "Downloaded verification report is incomplete"
+            }
+        }
         val observed = mutableMapOf<String, String>()
-        var metadataFound = false
-        var sumsFound = false
         requireNotNull(context.contentResolver.openInputStream(uri)) {
             "Android could not reopen the saved file"
         }.use { input ->
@@ -235,10 +276,8 @@ class ExportRepository(private val context: Context) {
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val entry = zip.nextEntry ?: break
-                    when (entry.name) {
-                        "download-info.json" -> metadataFound = true
-                        "SHA256SUMS.txt" -> sumsFound = true
-                        in expected -> {
+                    when {
+                        entry.name in expected -> {
                             require(!entry.isDirectory && entry.name !in observed) {
                                 "Saved archive contains an invalid APK entry"
                             }
@@ -252,7 +291,7 @@ class ExportRepository(private val context: Context) {
                 }
             }
         }
-        require(metadataFound && sumsFound && observed.keys == expected.keys) {
+        require(observed.keys == expected.keys) {
             "Saved archive is missing required entries"
         }
         require(observed.all { (path, digest) -> digest.equals(expected[path], ignoreCase = true) }) {
@@ -272,68 +311,21 @@ class ExportRepository(private val context: Context) {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun metadata(outcome: DownloadOutcome) = JSONObject().apply {
-        val plannedFiles = outcome.plan.artifacts.associateBy { it.relativePath }
-        put("formatVersion", 2)
-        put("packageName", outcome.plan.packageName)
-        put("versionName", outcome.plan.versionName)
-        put("versionCode", outcome.plan.versionCode)
-        put("source", "Google Play")
-        put("deliveryCheckedAt", timestamp(outcome.plan.checkedAt))
-        put("downloadCompletedAt", timestamp(System.currentTimeMillis()))
-        put("deviceConfiguration", outcome.plan.deviceDescription)
-        put("architectureSelection", outcome.plan.architectureChoice.name.lowercase())
-        put("allLanguagesRequested", true)
-        put("requestedLocales", JSONArray(outcome.plan.requestedLocales))
-        put("deliveryProfiles", JSONArray().apply {
-            outcome.plan.deliveryProfiles.forEach { profile ->
-                put(JSONObject().apply {
-                    put("variant", profile.variant.archiveDirectory)
-                    put("bitness", profile.variant.bitness)
-                    put("platforms", JSONArray(profile.platforms))
-                })
-            }
-        })
-        put("hasAdditionalNonApkData", outcome.plan.hasAdditionalData)
-        put("files", JSONArray().apply {
-            outcome.verification.files.forEach { file ->
-                val planned = plannedFiles[file.relativePath]
-                put(JSONObject().apply {
-                    put("path", file.relativePath)
-                    put("variant", file.variant.archiveDirectory)
-                    put("packageName", file.ownerPackage)
-                    put("versionCode", planned?.ownerVersionCode ?: JSONObject.NULL)
-                    put("type", planned?.type ?: JSONObject.NULL)
-                    put("localeKeys", JSONArray(planned?.localeKeys.orEmpty()))
-                    put("size", file.size)
-                    put("sha256", file.sha256)
-                    put("integrity", file.integrity.name.lowercase())
-                    put("signature", file.signature.name.lowercase())
-                    put("signerCertificateSha256", JSONArray(file.signerSha256))
-                })
-            }
-        })
-        put("verification", JSONObject().apply {
-            put("integrity", outcome.verification.integrity.name.lowercase())
-            put("signatures", outcome.verification.signatures.name.lowercase())
-            put("packageAndVersion", outcome.verification.packageMatch.name.lowercase())
-            put("limitations", JSONArray(outcome.verification.limitations))
-        })
-    }
-
-    private fun timestamp(epochMillis: Long): String =
-        DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(epochMillis))
-
     private data class PendingTarget(
         val uri: Uri,
         val finish: () -> Uri,
         val abort: () -> Unit
     )
 
+    private data class ArchiveArtifact(
+        val name: String,
+        val artifact: DownloadedArtifact
+    )
+
     companion object {
         private const val TAG = "AuroraPure"
         private const val APK_MIME = "application/vnd.android.package-archive"
-        private const val ZIP_MIME = "application/zip"
+        private const val APKS_MIME = "application/zip"
         private const val MINIMUM_FREE_BYTES = 16L * 1024L * 1024L
     }
 }

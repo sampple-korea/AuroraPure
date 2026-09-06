@@ -9,6 +9,9 @@ import android.content.Context
 import android.net.Uri
 import com.aurora.pure.R
 import com.aurora.pure.data.ArchitectureChoice
+import com.aurora.pure.data.ArchitectureVariant
+import com.aurora.pure.data.DeliveryProfile
+import com.aurora.pure.data.DensityChoice
 import com.aurora.pure.data.DownloadRecord
 import com.aurora.pure.data.TaskStatus
 import com.aurora.pure.download.RemoteApkSplitReader
@@ -35,6 +38,12 @@ class RecordRepository(private val context: Context) {
             preferences.getString("architecture_choice", "").orEmpty()
         )
         set(value) = preferences.edit().putString("architecture_choice", value.name).apply()
+
+    var densityChoice: DensityChoice
+        get() = DensityChoice.fromStored(
+            preferences.getString("density_choice", "").orEmpty()
+        )
+        set(value) = preferences.edit().putString("density_choice", value.name).apply()
 
     fun load(): List<DownloadRecord> {
         val raw = preferences.getString("records", "[]").orEmpty()
@@ -110,6 +119,17 @@ class RecordRepository(private val context: Context) {
         put("versionName", versionName)
         put("versionCode", versionCode)
         put("architectureChoice", architectureChoice.name)
+        put("densityChoice", densityChoice.name)
+        put("deliveryProfiles", JSONArray().apply {
+            deliveryProfiles.forEach { profile ->
+                put(JSONObject().apply {
+                    put("variant", profile.variant.name)
+                    put("platforms", JSONArray(profile.platforms))
+                    put("densityDpi", profile.densityDpi)
+                    put("sdkVersion", profile.sdkVersion)
+                })
+            }
+        })
         put("planFingerprint", planFingerprint)
         put("checkedAt", checkedAt)
         put("createdAt", createdAt)
@@ -134,6 +154,32 @@ class RecordRepository(private val context: Context) {
         versionName = optString("versionName"),
         versionCode = optLong("versionCode"),
         architectureChoice = ArchitectureChoice.fromStored(optString("architectureChoice")),
+        densityChoice = DensityChoice.fromStored(optString("densityChoice")),
+        deliveryProfiles = optJSONArray("deliveryProfiles")?.let { profiles ->
+            buildList {
+                for (index in 0 until profiles.length()) {
+                    val profile = profiles.optJSONObject(index) ?: continue
+                    val variant = runCatching {
+                        ArchitectureVariant.valueOf(profile.optString("variant"))
+                    }.getOrNull() ?: continue
+                    val platformsJson = profile.optJSONArray("platforms")
+                    val platforms = buildList {
+                        if (platformsJson != null) {
+                            for (platformIndex in 0 until platformsJson.length()) {
+                                platformsJson.optString(platformIndex)
+                                    .takeIf(String::isNotBlank)
+                                    ?.let(::add)
+                            }
+                        }
+                    }.ifEmpty { variant.platforms }
+                    val density = profile.optInt("densityDpi")
+                    val sdk = profile.optInt("sdkVersion")
+                    if (density > 0 && sdk >= 21) {
+                        add(DeliveryProfile(variant, platforms, density, sdk))
+                    }
+                }
+            }
+        }.orEmpty(),
         planFingerprint = optString("planFingerprint"),
         checkedAt = optLong("checkedAt"),
         createdAt = optLong("createdAt"),

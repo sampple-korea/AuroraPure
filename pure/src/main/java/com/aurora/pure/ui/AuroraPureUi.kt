@@ -49,6 +49,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -76,9 +77,12 @@ import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ConnectionState
 import com.aurora.pure.data.DownloadConfirmation
 import com.aurora.pure.data.DownloadRecord
+import com.aurora.pure.data.DeliveryVariant
+import com.aurora.pure.data.DensityChoice
 import com.aurora.pure.data.PureUiState
 import com.aurora.pure.data.Screen
 import com.aurora.pure.data.TaskStatus
+import com.aurora.pure.play.DeviceProfile
 import java.util.Locale
 
 @Composable
@@ -279,6 +283,10 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                         stringResource(R.string.architecture),
                         architectureText(state.architectureChoice)
                     )
+                    DetailRow(
+                        stringResource(R.string.screen_density),
+                        densityText(state.densityChoice)
+                    )
                     DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
                     DetailRow(stringResource(R.string.current_device), android.os.Build.MODEL)
                     DetailRow(stringResource(R.string.checked_at), formatDate(app.checkedAt))
@@ -299,23 +307,151 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                 enabled = !state.busy
             )
             Spacer(Modifier.height(8.dp))
+            DensitySelector(
+                selected = state.densityChoice,
+                onSelected = viewModel::setDensityChoice,
+                enabled = !state.busy
+            )
+            Spacer(Modifier.height(8.dp))
             Text(
-                stringResource(R.string.all_languages_explanation),
+                stringResource(R.string.variant_discovery_explanation),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         item {
-            Button(
-                onClick = viewModel::prepareDownload,
+            OutlinedButton(
+                onClick = viewModel::discoverVariants,
                 enabled = app.isFree && !state.busy,
                 modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
-                if (state.busy) {
+                if (state.discoveringVariants) {
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 } else {
-                    Text(stringResource(R.string.latest_files))
+                    Text(
+                        stringResource(
+                            if (state.variants.isEmpty()) {
+                                R.string.discover_variants
+                            } else {
+                                R.string.refresh_variants
+                            }
+                        )
+                    )
                 }
+            }
+        }
+        if (state.variants.isNotEmpty()) {
+            item {
+                Text(
+                    stringResource(R.string.available_variants),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            items(state.variants, key = DeliveryVariant::id) { variant ->
+                VariantCard(
+                    variant = variant,
+                    selected = variant.id == state.selectedVariantId,
+                    onClick = { viewModel.selectVariant(variant.id) }
+                )
+            }
+            item {
+                Text(
+                    stringResource(R.string.all_languages_explanation),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            item {
+                Button(
+                    onClick = viewModel::prepareDownload,
+                    enabled = app.isFree && !state.busy && state.selectedVariantId.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().height(52.dp)
+                ) {
+                    if (state.busy && !state.discoveringVariants) {
+                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text(stringResource(R.string.latest_files))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VariantCard(
+    variant: DeliveryVariant,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        )
+    ) {
+        Row(
+            Modifier.padding(14.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            RadioButton(selected = selected, onClick = onClick)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    if (variant.universal) {
+                        stringResource(R.string.universal_variant)
+                    } else {
+                        stringResource(
+                            R.string.variant_version,
+                            variant.versionName,
+                            variant.versionCode.toString()
+                        )
+                    },
+                    fontWeight = FontWeight.Bold
+                )
+                if (variant.universal) {
+                    Text(
+                        stringResource(
+                            R.string.variant_version,
+                            variant.versionName,
+                            variant.versionCode.toString()
+                        ),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                DetailRow(
+                    stringResource(R.string.architecture),
+                    variant.architectures.joinToString(" + ") { it.archiveDirectory }
+                )
+                DetailRow(
+                    stringResource(R.string.minimum_android),
+                    stringResource(
+                        R.string.android_api_value,
+                        DeviceProfile.androidRelease(variant.minSdk),
+                        variant.minSdk
+                    )
+                )
+                DetailRow(
+                    stringResource(R.string.screen_density),
+                    variant.densityDpis.joinToString(", ", postfix = " dpi")
+                )
+                DetailRow(
+                    stringResource(R.string.probed_android),
+                    variant.testedSdkVersions.joinToString(", ") { "API $it" }
+                )
+                DetailRow(
+                    stringResource(R.string.file_layout),
+                    stringResource(
+                        R.string.apk_count_size,
+                        variant.artifactCount,
+                        formatBytes(variant.totalBytes)
+                    )
+                )
             }
         }
     }
@@ -383,6 +519,14 @@ private fun DownloadCard(
                 ),
                 style = MaterialTheme.typography.bodySmall
             )
+            Text(
+                stringResource(
+                    R.string.verification_value,
+                    stringResource(R.string.screen_density),
+                    densityText(record.densityChoice)
+                ),
+                style = MaterialTheme.typography.bodySmall
+            )
             if (record.status in setOf(TaskStatus.DOWNLOADING, TaskStatus.PAUSED, TaskStatus.VERIFYING, TaskStatus.EXPORTING)) {
                 LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 Text(
@@ -444,7 +588,7 @@ private fun DownloadCard(
             if (record.hasAdditionalData) {
                 Text(stringResource(R.string.additional_data_warning), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
             }
-            if (record.outputName.endsWith(".zip", true)) {
+            if (record.outputName.endsWith(".apks", true)) {
                 Text(stringResource(R.string.split_notice), style = MaterialTheme.typography.bodySmall)
             }
             if (record.error.isNotBlank()) {
@@ -507,6 +651,16 @@ private fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            DensitySelector(
+                selected = state.densityChoice,
+                onSelected = viewModel::setDensityChoice,
+                enabled = !state.busy
+            )
+            Text(
+                stringResource(R.string.density_explanation),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
             Text(
                 stringResource(R.string.all_languages_explanation),
@@ -557,18 +711,44 @@ private fun ArchitectureSelector(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.architecture), fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
+        listOf(
+            ArchitectureChoice.UNIVERSAL to stringResource(R.string.architecture_universal),
                 ArchitectureChoice.BOTH to stringResource(R.string.architecture_both),
                 ArchitectureChoice.BIT_64 to stringResource(R.string.architecture_64),
                 ArchitectureChoice.BIT_32 to stringResource(R.string.architecture_32)
-            ).forEach { (choice, label) ->
-                FilterChip(
-                    selected = selected == choice,
-                    onClick = { onSelected(choice) },
-                    label = { Text(label) },
-                    enabled = enabled
-                )
+        ).chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (choice, label) ->
+                    FilterChip(
+                        selected = selected == choice,
+                        onClick = { onSelected(choice) },
+                        label = { Text(label) },
+                        enabled = enabled
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DensitySelector(
+    selected: DensityChoice,
+    onSelected: (DensityChoice) -> Unit,
+    enabled: Boolean
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.screen_density), fontWeight = FontWeight.SemiBold)
+        DensityChoice.entries.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { choice ->
+                    FilterChip(
+                        selected = selected == choice,
+                        onClick = { onSelected(choice) },
+                        label = { Text(densityText(choice)) },
+                        enabled = enabled
+                    )
+                }
             }
         }
     }
@@ -662,13 +842,25 @@ private fun VersionConfirmation(
                     stringResource(R.string.architecture),
                     architectureText(confirmation.plan.architectureChoice)
                 )
+                DetailRow(
+                    stringResource(R.string.screen_density),
+                    densityText(confirmation.plan.densityChoice)
+                )
+                DetailRow(
+                    stringResource(R.string.minimum_android),
+                    stringResource(
+                        R.string.android_api_value,
+                        DeviceProfile.androidRelease(confirmation.plan.minSdk),
+                        confirmation.plan.minSdk
+                    )
+                )
                 DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
                 DetailRow(
                     stringResource(R.string.language_files),
                     stringResource(
                         R.string.language_split_count,
                         confirmation.plan.requestedLocales.size,
-                        confirmation.plan.artifacts.count { it.localeKeys.isNotEmpty() }
+                        confirmation.plan.uniqueArtifacts.count { it.localeKeys.isNotEmpty() }
                     )
                 )
                 DetailRow(stringResource(R.string.delivery_profiles), confirmation.plan.deviceDescription)
@@ -677,7 +869,7 @@ private fun VersionConfirmation(
                     stringResource(R.string.file_layout),
                     stringResource(
                         R.string.apk_count_size,
-                        confirmation.plan.artifacts.size,
+                        confirmation.plan.uniqueArtifacts.size,
                         formatBytes(confirmation.plan.totalBytes)
                     )
                 )
@@ -689,7 +881,7 @@ private fun VersionConfirmation(
                 )
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Text(stringResource(R.string.file_list), fontWeight = FontWeight.Bold)
-                confirmation.plan.artifacts.forEach { artifact ->
+                confirmation.plan.uniqueArtifacts.forEach { artifact ->
                     Column {
                         Text(artifact.relativePath, style = MaterialTheme.typography.bodyMedium)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -711,7 +903,7 @@ private fun VersionConfirmation(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                if (confirmation.plan.architectureChoice == ArchitectureChoice.BOTH) {
+                if (confirmation.plan.deliveryProfiles.size > 1) {
                     Text(
                         stringResource(R.string.combined_variants_notice),
                         color = MaterialTheme.colorScheme.tertiary,
@@ -728,11 +920,25 @@ private fun VersionConfirmation(
 @Composable
 private fun architectureText(choice: ArchitectureChoice): String = stringResource(
     when (choice) {
+        ArchitectureChoice.UNIVERSAL -> R.string.architecture_universal
         ArchitectureChoice.BOTH -> R.string.architecture_both
         ArchitectureChoice.BIT_64 -> R.string.architecture_64
         ArchitectureChoice.BIT_32 -> R.string.architecture_32
     }
 )
+
+@Composable
+private fun densityText(choice: DensityChoice): String = when (choice) {
+    DensityChoice.CURRENT -> stringResource(R.string.density_current)
+    DensityChoice.ALL -> stringResource(R.string.density_all)
+    DensityChoice.LDPI -> "ldpi · 120"
+    DensityChoice.MDPI -> "mdpi · 160"
+    DensityChoice.TVDPI -> "tvdpi · 213"
+    DensityChoice.HDPI -> "hdpi · 240"
+    DensityChoice.XHDPI -> "xhdpi · 320"
+    DensityChoice.XXHDPI -> "xxhdpi · 480"
+    DensityChoice.XXXHDPI -> "xxxhdpi · 640"
+}
 
 @Composable
 private fun statusText(status: TaskStatus): String {

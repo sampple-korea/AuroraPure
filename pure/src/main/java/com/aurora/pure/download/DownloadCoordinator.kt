@@ -29,11 +29,18 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Call
 import okhttp3.Request
 
@@ -48,17 +55,16 @@ class DownloadCoordinator(
     @Volatile
     private var cancelRequested = false
 
-    @Volatile
-    private var activeCall: Call? = null
+    private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
     fun pause() {
         pauseRequested = true
-        activeCall?.cancel()
+        activeCalls.forEach(Call::cancel)
     }
 
     fun cancel() {
         cancelRequested = true
-        activeCall?.cancel()
+        activeCalls.forEach(Call::cancel)
     }
 
     suspend fun execute(
@@ -73,7 +79,7 @@ class DownloadCoordinator(
             "Invalid task directory"
         }
 
-        val localArtifacts = plan.artifacts.map { artifact ->
+        val localArtifacts = plan.uniqueArtifacts.map { artifact ->
             DownloadedArtifact(artifact, localFile(taskRoot, artifact))
         }
         localArtifacts.forEach { item ->
@@ -92,62 +98,43 @@ class DownloadCoordinator(
         }
 
         val reusable = localArtifacts.associateWith(::isReusableCompletedFile)
-        val completedSources = mutableMapOf<String, DownloadedArtifact>()
-        reusable.filterValues { it }.keys.forEach { item ->
-            artifactIdentity(item.plan)?.let { completedSources.putIfAbsent(it, item) }
-        }
-        var downloadedBytes = localArtifacts.sumOf { item ->
-            when {
+        val initialBytes = localArtifacts.associate { item ->
+            item.plan.relativePath to when {
                 reusable[item] == true -> item.file.length()
                 partFile(item.file).exists() -> partFile(item.file).length()
                 else -> 0L
             }
         }
-        var completedFiles = reusable.count { it.value }
-        onProgress(downloadedBytes, completedFiles)
+        val completedFiles = AtomicInteger(reusable.count { it.value })
+        val progress = ProgressTracker(initialBytes, completedFiles.get(), onProgress)
+        progress.emit()
 
         try {
-            localArtifacts.forEach { item ->
-                checkControlState()
-                if (reusable[item] != true) {
-                    if (item.file.exists()) item.file.delete()
-                    val matching = artifactIdentity(item.plan)?.let(completedSources::get)
-                        ?.takeIf(::isReusableCompletedFile)
-                    if (matching != null) {
-                        partFile(item.file).delete()
-                        copyCompletedArtifact(matching.file, item.file)
-                        downloadedBytes = localArtifacts.sumOf { local ->
-                            when {
-                                local.file.exists() -> local.file.length()
-                                partFile(local.file).exists() -> partFile(local.file).length()
-                                else -> 0L
-                            }
-                        }
-                    } else {
-                        for (attempt in 0 until MAX_ATTEMPTS) {
-                            try {
-                                val diskBytes = localArtifacts.sumOf { local ->
-                                    when {
-                                        local.file.exists() -> local.file.length()
-                                        partFile(local.file).exists() -> partFile(local.file).length()
-                                        else -> 0L
+            coroutineScope {
+                val semaphore = Semaphore(MAX_PARALLEL_DOWNLOADS)
+                localArtifacts.filter { reusable[it] != true }.map { item ->
+                    async {
+                        semaphore.withPermit {
+                            checkControlState()
+                            if (item.file.exists()) item.file.delete()
+                            for (attempt in 0 until MAX_ATTEMPTS) {
+                                try {
+                                    downloadOne(item, progress)
+                                    break
+                                } catch (exception: IOException) {
+                                    currentCoroutineContext().ensureActive()
+                                    checkControlState()
+                                    if (!isRetryable(exception) || attempt + 1 >= MAX_ATTEMPTS) {
+                                        throw exception
                                     }
+                                    delay(750L * (attempt + 1))
                                 }
-                                downloadedBytes = downloadOne(item, diskBytes, completedFiles, onProgress)
-                                break
-                            } catch (exception: IOException) {
-                                checkControlState()
-                                if (!isRetryable(exception) || attempt + 1 >= MAX_ATTEMPTS) {
-                                    throw exception
-                                }
-                                delay(750L * (attempt + 1))
                             }
+                            progress.markCompleted(completedFiles.incrementAndGet())
                         }
                     }
-                    artifactIdentity(item.plan)?.let { completedSources.putIfAbsent(it, item) }
-                    completedFiles += 1
-                    onProgress(downloadedBytes, completedFiles)
                 }
+                    .awaitAll()
             }
 
             checkControlState()
@@ -156,17 +143,16 @@ class DownloadCoordinator(
             require(report.isExportable) { "Downloaded APK verification failed: ${report.summary()}" }
             return@withContext DownloadOutcome(plan, localArtifacts, report)
         } finally {
-            activeCall = null
+            activeCalls.forEach(Call::cancel)
+            activeCalls.clear()
             if (cancelRequested) records.deleteTaskFiles(plan.id)
         }
     }
 
     private suspend fun downloadOne(
         item: DownloadedArtifact,
-        alreadyDownloaded: Long,
-        completedFiles: Int,
-        onProgress: (Long, Int) -> Unit
-    ): Long {
+        progress: ProgressTracker
+    ) {
         item.file.parentFile?.mkdirs()
         require(DeliveryUrlPolicy.isAllowed(item.plan.url)) {
             "Download URL is outside the approved Google delivery hosts"
@@ -182,52 +168,57 @@ class DownloadCoordinator(
             if (offset > 0) header("Range", "bytes=$offset-")
         }.build()
         val call = httpClient.downloadClient.newCall(request)
-        activeCall = call
-        val response = call.execute()
-
-        response.use {
-            checkControlState()
-            var append = false
-            if (offset > 0) {
-                when (ResumePolicy.decide(offset, it.code, it.header("Content-Range"))) {
-                    ResumePolicy.Decision.APPEND -> append = true
-                    ResumePolicy.Decision.RESTART -> offset = 0L
-                    ResumePolicy.Decision.REJECT -> {
-                        throw PermanentDownloadException(
-                            "Server rejected a safe resume (HTTP ${it.code})"
-                        )
+        activeCalls += call
+        try {
+            call.execute().use {
+                checkControlState()
+                var append = false
+                if (offset > 0) {
+                    when (ResumePolicy.decide(offset, it.code, it.header("Content-Range"))) {
+                        ResumePolicy.Decision.APPEND -> append = true
+                        ResumePolicy.Decision.RESTART -> {
+                            offset = 0L
+                            progress.update(item.plan.relativePath, 0L)
+                        }
+                        ResumePolicy.Decision.REJECT -> {
+                            throw PermanentDownloadException(
+                                "Server rejected a safe resume (HTTP ${it.code})"
+                            )
+                        }
                     }
                 }
-            }
-            if (offset == 0L && !it.isSuccessful) {
-                throw HttpDownloadException(it.code)
-            }
-
-            var total = alreadyDownloaded - part.length() + offset
-            FileOutputStream(part, append).use { output ->
-                it.body.byteStream().use { input ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        checkControlState()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        total += count
-                        onProgress(total, completedFiles)
-                    }
-                    output.fd.sync()
+                if (offset == 0L && !it.isSuccessful) {
+                    throw HttpDownloadException(it.code)
                 }
+
+                var fileBytes = offset
+                FileOutputStream(part, append).use { output ->
+                    it.body.byteStream().use { input ->
+                        val buffer = ByteArray(NETWORK_BUFFER_BYTES)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            checkControlState()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            fileBytes += count
+                            progress.update(item.plan.relativePath, fileBytes)
+                        }
+                        output.fd.sync()
+                    }
+                }
+                if (item.plan.size > 0 && part.length() != item.plan.size) {
+                    throw IOException(
+                        "Size mismatch for ${item.plan.name}: ${part.length()} of ${item.plan.size} bytes"
+                    )
+                }
+                if (!part.renameTo(item.file)) {
+                    throw PermanentDownloadException("Could not finalize ${item.plan.name}")
+                }
+                progress.update(item.plan.relativePath, item.file.length())
             }
-            if (item.plan.size > 0 && part.length() != item.plan.size) {
-                throw IOException(
-                    "Size mismatch for ${item.plan.name}: ${part.length()} of ${item.plan.size} bytes"
-                )
-            }
-            if (!part.renameTo(item.file)) {
-                throw PermanentDownloadException("Could not finalize ${item.plan.name}")
-            }
-            return total
+        } finally {
+            activeCalls -= call
         }
     }
 
@@ -354,40 +345,6 @@ class DownloadCoordinator(
         }
     }
 
-    private fun artifactIdentity(artifact: ArtifactPlan): String? {
-        val referenceHash = when {
-            artifact.sha256.isNotBlank() -> "sha256:${artifact.sha256.lowercase()}"
-            artifact.sha1.isNotBlank() -> "sha1:${artifact.sha1.lowercase()}"
-            else -> return null
-        }
-        return listOf(
-            artifact.ownerPackage,
-            artifact.ownerVersionCode.toString(),
-            artifact.name,
-            artifact.type,
-            artifact.size.toString(),
-            referenceHash
-        ).joinToString("|")
-    }
-
-    private fun copyCompletedArtifact(source: File, destination: File) {
-        destination.parentFile?.mkdirs()
-        val partial = File(destination.absolutePath + ".copy")
-        partial.delete()
-        try {
-            source.inputStream().use { input ->
-                FileOutputStream(partial).use { output ->
-                    input.copyTo(output)
-                    output.fd.sync()
-                }
-            }
-            require(partial.renameTo(destination)) { "Could not finalize ${destination.name}" }
-        } catch (exception: Exception) {
-            partial.delete()
-            throw exception
-        }
-    }
-
     private fun localFile(taskRoot: File, artifact: ArtifactPlan): File {
         val relative = artifact.relativePath.split('/').joinToString(File.separator) { safeSegment(it) }
         val file = taskRoot.resolve(relative)
@@ -433,6 +390,30 @@ class DownloadCoordinator(
             .digest(certificate.encoded)
             .joinToString("") { "%02x".format(it) }
 
+    private class ProgressTracker(
+        initialBytes: Map<String, Long>,
+        completedFiles: Int,
+        private val callback: (Long, Int) -> Unit
+    ) {
+        private val bytes = initialBytes.toMutableMap()
+        private var completed = completedFiles
+
+        @Synchronized
+        fun emit() = callback(bytes.values.sum(), completed)
+
+        @Synchronized
+        fun update(key: String, value: Long) {
+            bytes[key] = value.coerceAtLeast(0)
+            callback(bytes.values.sum(), completed)
+        }
+
+        @Synchronized
+        fun markCompleted(value: Int) {
+            completed = value
+            callback(bytes.values.sum(), completed)
+        }
+    }
+
     private fun checkControlState() {
         if (cancelRequested) throw CancelRequestedException()
         if (pauseRequested) throw PauseRequestedException()
@@ -447,6 +428,8 @@ class DownloadCoordinator(
     companion object {
         private const val TAG = "AuroraPure"
         private const val MAX_ATTEMPTS = 3
+        private const val MAX_PARALLEL_DOWNLOADS = 4
+        private const val NETWORK_BUFFER_BYTES = 256 * 1024
         private const val MINIMUM_FREE_BYTES = 16L * 1024L * 1024L
         private val RETRYABLE_HTTP_CODES = setOf(408, 500, 502, 503, 504)
     }

@@ -9,6 +9,7 @@ import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.DeliveryProfile
+import com.aurora.pure.data.DensityChoice
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.download.ResumePolicy
 import com.aurora.pure.network.DeliveryUrlPolicy
@@ -80,16 +81,20 @@ class CorePolicyTest {
     @Test
     fun architectureProfilesAreSeparateAndFollowTheDeviceFamily() {
         val arm = DeviceProfile.deliveryProfiles(
-            ArchitectureChoice.BOTH,
-            listOf("arm64-v8a", "armeabi-v7a")
+            choice = ArchitectureChoice.BOTH,
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+            currentDensityDpi = 420,
+            sdkVersions = listOf(35)
         )
-        assertEquals(listOf(ArchitectureVariant.BIT_64, ArchitectureVariant.BIT_32), arm.map { it.variant })
+        assertEquals(listOf(ArchitectureVariant.ARM_64, ArchitectureVariant.ARM_32), arm.map { it.variant })
         assertEquals(listOf("arm64-v8a"), arm[0].platforms)
         assertEquals(listOf("armeabi-v7a", "armeabi"), arm[1].platforms)
 
         val x86 = DeviceProfile.deliveryProfiles(
-            ArchitectureChoice.BOTH,
-            listOf("x86_64", "x86")
+            choice = ArchitectureChoice.BOTH,
+            supportedAbis = listOf("x86_64", "x86"),
+            currentDensityDpi = 240,
+            sdkVersions = listOf(34)
         )
         assertEquals(listOf("x86_64"), x86[0].platforms)
         assertEquals(listOf("x86"), x86[1].platforms)
@@ -98,10 +103,25 @@ class CorePolicyTest {
     @Test
     fun variantPathsCannotOverwriteEachOther() {
         val artifact = plan().artifacts.single()
-        val otherVariant = artifact.copy(variant = ArchitectureVariant.BIT_32)
+        val otherVariant = artifact.copy(variant = ArchitectureVariant.ARM_32)
         assertNotEquals(artifact.relativePath, otherVariant.relativePath)
-        assertTrue(artifact.relativePath.startsWith("variants/64bit/"))
-        assertTrue(otherVariant.relativePath.startsWith("variants/32bit/"))
+        assertTrue(artifact.relativePath.startsWith("profiles/arm64-v8a/420dpi/api35/"))
+        assertTrue(otherVariant.relativePath.startsWith("profiles/armeabi-v7a/420dpi/api35/"))
+    }
+
+    @Test
+    fun universalAllDensityProfilesCoverFourAbisAndSevenStandardBuckets() {
+        val profiles = DeviceProfile.deliveryProfiles(
+            choice = ArchitectureChoice.UNIVERSAL,
+            densityChoice = DensityChoice.ALL,
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+            currentDensityDpi = 420,
+            sdkVersions = listOf(35)
+        )
+        assertEquals(28, profiles.size)
+        assertEquals(ArchitectureVariant.entries.toSet(), profiles.map { it.variant }.toSet())
+        assertEquals(DensityChoice.STANDARD_DENSITIES.toSet(), profiles.map { it.densityDpi }.toSet())
+        assertEquals(28, profiles.map { it.id }.distinct().size)
     }
 
     private fun plan() = DownloadPlan(
@@ -110,16 +130,21 @@ class CorePolicyTest {
         displayName = "Example",
         versionName = "1.0",
         versionCode = 1,
+        minSdk = 23,
+        targetSdk = 35,
         checkedAt = 1,
         deviceDescription = "device-a",
         architectureChoice = ArchitectureChoice.BIT_64,
+        densityChoice = DensityChoice.CURRENT,
         deliveryProfiles = listOf(
-            DeliveryProfile(ArchitectureVariant.BIT_64, listOf("arm64-v8a"))
+            DeliveryProfile(ArchitectureVariant.ARM_64, listOf("arm64-v8a"), 420, 35)
         ),
         requestedLocales = DeviceProfile.allPlayLocales,
         artifacts = listOf(
             ArtifactPlan(
-                variant = ArchitectureVariant.BIT_64,
+                variant = ArchitectureVariant.ARM_64,
+                densityDpi = 420,
+                sdkVersion = 35,
                 ownerPackage = "com.example.app",
                 ownerVersionCode = 1,
                 name = "base.apk",

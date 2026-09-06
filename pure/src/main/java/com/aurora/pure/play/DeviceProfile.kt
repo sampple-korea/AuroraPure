@@ -10,10 +10,12 @@ package com.aurora.pure.play
 import android.app.ActivityManager
 import android.content.Context
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.os.Build
 import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.DeliveryProfile
+import com.aurora.pure.data.DensityChoice
 import java.util.Properties
 import java.util.TimeZone
 
@@ -33,21 +35,38 @@ object DeviceProfile {
 
     fun deliveryProfiles(
         choice: ArchitectureChoice,
-        supportedAbis: List<String> = Build.SUPPORTED_ABIS.toList()
+        densityChoice: DensityChoice = DensityChoice.CURRENT,
+        supportedAbis: List<String> = Build.SUPPORTED_ABIS.toList(),
+        currentDensityDpi: Int = Resources.getSystem().displayMetrics.densityDpi,
+        sdkVersions: List<Int> = listOf(Build.VERSION.SDK_INT)
     ): List<DeliveryProfile> {
         val firstAbi = supportedAbis.firstOrNull().orEmpty()
         val x86Family = firstAbi.startsWith("x86")
-        return choice.variants.map { variant ->
-            val platforms = when (variant) {
-                ArchitectureVariant.BIT_64 -> {
-                    if (x86Family) listOf("x86_64") else listOf("arm64-v8a")
-                }
-
-                ArchitectureVariant.BIT_32 -> {
-                    if (x86Family) listOf("x86") else listOf("armeabi-v7a", "armeabi")
+        val variants = when (choice) {
+            ArchitectureChoice.UNIVERSAL -> listOf(
+                ArchitectureVariant.ARM_64,
+                ArchitectureVariant.ARM_32,
+                ArchitectureVariant.X86_64,
+                ArchitectureVariant.X86
+            )
+            ArchitectureChoice.BOTH -> if (x86Family) {
+                listOf(ArchitectureVariant.X86_64, ArchitectureVariant.X86)
+            } else {
+                listOf(ArchitectureVariant.ARM_64, ArchitectureVariant.ARM_32)
+            }
+            ArchitectureChoice.BIT_64 -> listOf(
+                if (x86Family) ArchitectureVariant.X86_64 else ArchitectureVariant.ARM_64
+            )
+            ArchitectureChoice.BIT_32 -> listOf(
+                if (x86Family) ArchitectureVariant.X86 else ArchitectureVariant.ARM_32
+            )
+        }
+        return variants.flatMap { variant ->
+            densityChoice.resolve(currentDensityDpi).flatMap { densityDpi ->
+                sdkVersions.distinct().map { sdkVersion ->
+                DeliveryProfile(variant, variant.platforms, densityDpi, sdkVersion)
                 }
             }
-            DeliveryProfile(variant, platforms)
         }
     }
 
@@ -58,8 +77,8 @@ object DeviceProfile {
         setProperty("Build.FINGERPRINT", Build.FINGERPRINT.orEmpty())
         setProperty("Build.BRAND", Build.BRAND.orEmpty())
         setProperty("Build.DEVICE", Build.DEVICE.orEmpty())
-        setProperty("Build.VERSION.SDK_INT", Build.VERSION.SDK_INT.toString())
-        setProperty("Build.VERSION.RELEASE", Build.VERSION.RELEASE.orEmpty())
+        setProperty("Build.VERSION.SDK_INT", profile.sdkVersion.toString())
+        setProperty("Build.VERSION.RELEASE", androidRelease(profile.sdkVersion))
         setProperty("Build.MODEL", Build.MODEL.orEmpty())
         setProperty("Build.MANUFACTURER", Build.MANUFACTURER.orEmpty())
         setProperty("Build.PRODUCT", Build.PRODUCT.orEmpty())
@@ -81,7 +100,7 @@ object DeviceProfile {
         )
 
         val metrics = context.resources.displayMetrics
-        setProperty("Screen.Density", metrics.densityDpi.toString())
+        setProperty("Screen.Density", profile.densityDpi.toString())
         setProperty("Screen.Width", metrics.widthPixels.toString())
         setProperty("Screen.Height", metrics.heightPixels.toString())
         setProperty("Platforms", profile.platforms.joinToString(","))
@@ -111,10 +130,29 @@ object DeviceProfile {
     fun description(profiles: List<DeliveryProfile>): String = buildString {
         append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
         append(" · Android ").append(Build.VERSION.RELEASE)
-        profiles.forEach { profile ->
-            append(" · ").append(profile.variant.bitness).append("-bit (")
-            append(profile.platforms.joinToString(", ")).append(')')
-        }
+        append(" · ")
+        append(profiles.map(DeliveryProfile::primaryAbi).distinct().joinToString(", "))
+        append(" · ")
+        append(profiles.map(DeliveryProfile::densityDpi).distinct().joinToString(", "))
+        append(" dpi")
+        append(" · API ")
+        append(profiles.map(DeliveryProfile::sdkVersion).distinct().joinToString(", "))
+    }
+
+    fun androidRelease(sdkVersion: Int): String = when (sdkVersion) {
+        21, 22 -> "5"
+        23 -> "6"
+        24, 25 -> "7"
+        26, 27 -> "8"
+        28 -> "9"
+        29 -> "10"
+        30 -> "11"
+        31, 32 -> "12"
+        33 -> "13"
+        34 -> "14"
+        35 -> "15"
+        36 -> "16"
+        else -> sdkVersion.toString()
     }
 
     private const val ALL_PLAY_LOCALES = """

@@ -23,6 +23,8 @@ import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.DeliveryProfile
+import com.aurora.pure.data.DeliveryVariant
+import com.aurora.pure.data.DensityChoice
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.download.LanguageSplit
 import com.aurora.pure.download.RemoteApkSplitReader
@@ -32,6 +34,8 @@ import java.util.Locale
 import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.security.MessageDigest
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -43,7 +47,7 @@ class AuroraGateway(private val context: Context) {
     val httpClient = PureHttpClient()
     private val splitReader = RemoteApkSplitReader(context, httpClient)
 
-    private val cachedAuth = ConcurrentHashMap<ArchitectureVariant, AuthData>()
+    private val cachedAuth = ConcurrentHashMap<String, AuthData>()
     private val credentialsMutex = Mutex()
 
     @Volatile
@@ -51,9 +55,10 @@ class AuroraGateway(private val context: Context) {
 
     suspend fun connectProfiles(
         architectureChoice: ArchitectureChoice,
+        densityChoice: DensityChoice = DensityChoice.CURRENT,
         force: Boolean = false
     ) = withContext(Dispatchers.IO) {
-        DeviceProfile.deliveryProfiles(architectureChoice).forEach { profile ->
+        DeviceProfile.deliveryProfiles(architectureChoice, densityChoice).forEach { profile ->
             connect(profile, force)
         }
     }
@@ -62,17 +67,17 @@ class AuroraGateway(private val context: Context) {
         profile: DeliveryProfile,
         force: Boolean = false
     ): AuthData = withContext(Dispatchers.IO) {
-        val existing = cachedAuth[profile.variant]
+        val existing = cachedAuth[profile.id]
         if (!force && existing != null && AuthHelper.isValid(existing)) return@withContext existing
 
-        if (force) cachedAuth.remove(profile.variant)
+        if (force) cachedAuth.remove(profile.id)
         val properties = DeviceProfile.properties(context, profile)
         var credentials = anonymousCredentials(profile, properties)
-        Log.i(TAG, "Creating ${profile.variant.name} Google Play session")
+        Log.i(TAG, "Creating ${profile.id} Google Play session")
         val auth = try {
             buildAuth(credentials, properties)
         } catch (exception: Exception) {
-            if (credentials.sourceVariant == profile.variant) throw exception
+            if (credentials.sourceProfileId == profile.id) throw exception
             Log.i(TAG, "The shared credentials were not reusable; requesting a profile-specific set")
             invalidateCredentials()
             credentials = anonymousCredentials(profile, properties)
@@ -82,8 +87,8 @@ class AuroraGateway(private val context: Context) {
             require(auth.authToken.isNotBlank() && auth.deviceConfigToken.isNotBlank()) {
                 "Google Play did not create a usable anonymous session"
             }
-            cachedAuth[profile.variant] = auth
-            Log.i(TAG, "Anonymous Google Play session is ready for ${profile.variant.name}")
+            cachedAuth[profile.id] = auth
+            Log.i(TAG, "Anonymous Google Play session is ready for ${profile.id}")
         }
     }
 
@@ -110,18 +115,97 @@ class AuroraGateway(private val context: Context) {
             .toSummary()
     }
 
+    suspend fun discoverVariants(
+        packageName: String,
+        architectureChoice: ArchitectureChoice,
+        densityChoice: DensityChoice
+    ): List<DeliveryVariant> = withContext(Dispatchers.IO) {
+        val initial = DeviceProfile.deliveryProfiles(architectureChoice, densityChoice)
+        val snapshots = mutableListOf<ProfileSnapshot>()
+
+        initial.groupBy(DeliveryProfile::variant).forEach { (_, densityProfiles) ->
+            var sdkVersion = Build.VERSION.SDK_INT
+            val visited = mutableSetOf<Int>()
+            while (sdkVersion >= MIN_SUPPORTED_ANDROID_API && visited.add(sdkVersion)) {
+                val tierProfiles = densityProfiles.map { it.copy(sdkVersion = sdkVersion) }
+                val tier = mutableListOf<ProfileSnapshot>()
+                tierProfiles.forEach { profile ->
+                    try {
+                        val resolved = resolveVariant(
+                            packageName = packageName,
+                            profile = profile,
+                            languageCache = mutableMapOf(),
+                            resolveLanguages = false
+                        )
+                        tier += ProfileSnapshot(profile, resolved)
+                    } catch (exception: Exception) {
+                        if (!isUnsupportedProfile(exception)) throw exception
+                        Log.i(TAG, "No delivery for ${profile.id}")
+                    }
+                }
+                if (tier.isEmpty()) break
+                snapshots += tier
+                val nextSdk = tier.minOf { it.resolution.minSdk } - 1
+                if (nextSdk < MIN_SUPPORTED_ANDROID_API || nextSdk >= sdkVersion) break
+                sdkVersion = nextSdk
+            }
+        }
+
+        require(snapshots.isNotEmpty()) {
+            "Google Play returned no APK files for the selected delivery profiles"
+        }
+        val groups = snapshots.groupBy { it.signature() }
+            .values
+            .map { matching -> matching.toDeliveryVariant() }
+            .sortedWith(
+                compareByDescending<DeliveryVariant> { it.versionCode }
+                    .thenBy { it.minSdk }
+                    .thenBy { it.architectures.first().ordinal }
+                    .thenBy { it.densityDpis.first() }
+            )
+
+        val latestVersion = groups.maxOf(DeliveryVariant::versionCode)
+        val latestGroups = groups.filter { it.versionCode == latestVersion }
+        val latestArtifacts = snapshots
+            .filter { it.resolution.app.versionCode == latestVersion }
+            .flatMap { it.resolution.artifacts }
+            .distinctBy { it.contentIdentity() ?: it.relativePath }
+        val universal = latestGroups.takeIf { it.size > 1 }?.let { variants ->
+            DeliveryVariant(
+                id = "universal-${stableId(variants.flatMap { it.profiles }.joinToString { it.id })}",
+                versionName = variants.first().versionName,
+                versionCode = latestVersion,
+                minSdk = variants.minOf(DeliveryVariant::minSdk),
+                targetSdk = variants.maxOf(DeliveryVariant::targetSdk),
+                profiles = variants.flatMap(DeliveryVariant::profiles).distinctBy(DeliveryProfile::id),
+                downloadProfiles = variants.flatMap(DeliveryVariant::downloadProfiles)
+                    .distinctBy(DeliveryProfile::id),
+                artifactCount = latestArtifacts.size,
+                totalBytes = latestArtifacts.sumOf { it.size.coerceAtLeast(0) },
+                universal = true
+            )
+        }
+        if (universal == null) groups else listOf(universal) + groups
+    }
+
     suspend fun resolvePlan(
         packageName: String,
-        architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH
+        architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH,
+        densityChoice: DensityChoice = DensityChoice.CURRENT,
+        selectedProfiles: List<DeliveryProfile> = emptyList()
     ): DownloadPlan = withContext(Dispatchers.IO) {
-        val profiles = DeviceProfile.deliveryProfiles(architectureChoice)
+        val profiles = selectedProfiles.takeIf { it.isNotEmpty() }
+            ?: DeviceProfile.deliveryProfiles(architectureChoice, densityChoice)
+        require(profiles.size <= MAX_SELECTED_PROFILES && profiles.map { it.id }.distinct().size == profiles.size) {
+            "The selected delivery profile list is invalid"
+        }
         val languageCache = mutableMapOf<LanguageCacheKey, LanguageResolution>()
         val resolutions = profiles.map { profile ->
-            resolveVariant(packageName, profile, languageCache)
+            resolveVariant(packageName, profile, languageCache, resolveLanguages = true)
         }
         val versionCodes = resolutions.map { it.app.versionCode }.distinct()
         require(versionCodes.size == 1) {
-            "Google Play returned different versions across selected architectures"
+            "Google Play returned different versions across selected delivery profiles"
         }
 
         val primary = resolutions.first().app
@@ -136,9 +220,12 @@ class AuroraGateway(private val context: Context) {
             displayName = primary.displayName.ifBlank { primary.packageName },
             versionName = primary.versionName,
             versionCode = primary.versionCode,
+            minSdk = resolutions.minOf(ResolvedVariant::minSdk),
+            targetSdk = resolutions.maxOf(ResolvedVariant::targetSdk),
             checkedAt = System.currentTimeMillis(),
             deviceDescription = DeviceProfile.description(profiles),
             architectureChoice = architectureChoice,
+            densityChoice = densityChoice,
             deliveryProfiles = profiles,
             requestedLocales = resolutions
                 .flatMap(ResolvedVariant::requestedLocales)
@@ -152,21 +239,29 @@ class AuroraGateway(private val context: Context) {
     private suspend fun resolveVariant(
         packageName: String,
         profile: DeliveryProfile,
-        languageCache: MutableMap<LanguageCacheKey, LanguageResolution>
+        languageCache: MutableMap<LanguageCacheKey, LanguageResolution>,
+        resolveLanguages: Boolean
     ): ResolvedVariant {
         val auth = connect(profile)
         try {
-            return resolveVariantWithAuth(packageName, profile, auth, languageCache)
+            return resolveVariantWithAuth(
+                packageName,
+                profile,
+                auth,
+                languageCache,
+                resolveLanguages
+            )
         } catch (exception: Exception) {
             if (httpClient.responseCode.value !in AUTH_FAILURE_CODES) throw exception
-            Log.i(TAG, "Refreshing an expired ${profile.variant.name} anonymous session")
+            Log.i(TAG, "Refreshing an expired ${profile.id} anonymous session")
             cachedAuth.clear()
             invalidateCredentials()
             return resolveVariantWithAuth(
                 packageName,
                 profile,
                 connect(profile, force = true),
-                languageCache
+                languageCache,
+                resolveLanguages
             )
         }
     }
@@ -175,9 +270,10 @@ class AuroraGateway(private val context: Context) {
         packageName: String,
         profile: DeliveryProfile,
         auth: AuthData,
-        languageCache: MutableMap<LanguageCacheKey, LanguageResolution>
+        languageCache: MutableMap<LanguageCacheKey, LanguageResolution>,
+        resolveLanguages: Boolean
     ): ResolvedVariant {
-        Log.i(TAG, "Resolving ${profile.variant.name} delivery metadata for $packageName")
+        Log.i(TAG, "Resolving ${profile.id} delivery metadata for $packageName")
         val app = AppDetailsHelper(auth).using(httpClient).getAppByPackageName(packageName)
         require(app.packageName == packageName) { "Google Play returned a different package" }
         require(app.isFree) { "Paid apps are not supported by Aurora Pure" }
@@ -204,13 +300,20 @@ class AuroraGateway(private val context: Context) {
             owned.file.type == PlayFile.Type.OBB || owned.file.type == PlayFile.Type.PATCH
         }
         val requestedLocales = mutableSetOf<String>()
+        var primaryMinSdk = 1
+        var primaryTargetSdk = app.targetSdk
         allFiles.map(OwnedFile::owner).distinctBy(App::packageName).forEach { owner ->
             val ownerFiles = allFiles.filter { it.owner.packageName == owner.packageName }
             val baseFile = ownerFiles.firstOrNull { it.file.type == PlayFile.Type.BASE }
                 ?: throw IllegalArgumentException("Google Play returned no base APK for a package")
             val baseArtifact = baseFile.toArtifact(profile, app)
             val deliveredNames = ownerFiles.map { it.file.name }.toSet()
-            val declarations = splitReader.read(baseArtifact).filter { declaration ->
+            val metadata = splitReader.inspect(baseArtifact)
+            if (owner.packageName == app.packageName) {
+                primaryMinSdk = metadata.identity.minSdk
+                primaryTargetSdk = metadata.identity.targetSdk.takeIf { it > 0 } ?: app.targetSdk
+            }
+            val declarations = metadata.languageSplits.filter { declaration ->
                 declaration.moduleName.isBlank() || deliveredNames.any { fileName ->
                     val splitName = fileName.removeSuffix(".apk")
                     splitName == declaration.moduleName ||
@@ -230,6 +333,7 @@ class AuroraGateway(private val context: Context) {
                     owned
                 }
             }
+            if (!resolveLanguages) return@forEach
 
             val key = LanguageCacheKey.from(owner, baseFile.file)
             val existingNames = allFiles.asSequence()
@@ -289,7 +393,9 @@ class AuroraGateway(private val context: Context) {
             app = app,
             artifacts = artifacts,
             hasAdditionalData = hasAdditionalData,
-            requestedLocales = requestedLocales.toList()
+            requestedLocales = requestedLocales.toList(),
+            minSdk = primaryMinSdk,
+            targetSdk = primaryTargetSdk
         )
     }
 
@@ -383,6 +489,8 @@ class AuroraGateway(private val context: Context) {
         }
         return ArtifactPlan(
             variant = profile.variant,
+            densityDpi = profile.densityDpi,
+            sdkVersion = profile.sdkVersion,
             ownerPackage = owner.packageName,
             ownerVersionCode = owner.versionCode,
             name = file.name,
@@ -417,7 +525,7 @@ class AuroraGateway(private val context: Context) {
         properties: Properties
     ): AnonymousCredentials = credentialsMutex.withLock {
         cachedCredentials?.let { return@withLock it }
-        Log.i(TAG, "Requesting anonymous credentials for ${profile.variant.name}")
+        Log.i(TAG, "Requesting anonymous credentials for ${profile.id}")
         val body = properties.toJson().toString().toByteArray()
         val response = httpClient.postAuth(DISPENSER_URL, body)
         if (!response.isSuccessful) {
@@ -428,7 +536,7 @@ class AuroraGateway(private val context: Context) {
         val credentials = AnonymousCredentials(
             email = json.optString("email"),
             token = json.optString("authToken"),
-            sourceVariant = profile.variant
+            sourceProfileId = profile.id
         )
         require(credentials.email.isNotBlank() && credentials.token.isNotBlank()) {
             "Anonymous connection returned incomplete credentials"
@@ -478,8 +586,63 @@ class AuroraGateway(private val context: Context) {
         val app: App,
         val artifacts: List<ArtifactPlan>,
         val hasAdditionalData: Boolean,
-        val requestedLocales: List<String>
+        val requestedLocales: List<String>,
+        val minSdk: Int,
+        val targetSdk: Int
     )
+
+    private data class ProfileSnapshot(
+        val profile: DeliveryProfile,
+        val resolution: ResolvedVariant
+    ) {
+        fun signature(): String = buildString {
+            append(resolution.app.versionCode).append('|')
+            append(resolution.minSdk).append('|').append(resolution.targetSdk).append('\n')
+            resolution.artifacts
+                .distinctBy { it.contentIdentity() ?: it.relativePath }
+                .map { artifact ->
+                    artifact.contentIdentity() ?: listOf(
+                        artifact.ownerPackage,
+                        artifact.name,
+                        artifact.type,
+                        artifact.size.toString()
+                    ).joinToString("|")
+                }
+                .sorted()
+                .forEach { append(it).append('\n') }
+        }
+    }
+
+    private fun List<ProfileSnapshot>.toDeliveryVariant(): DeliveryVariant {
+        val first = first().resolution
+        val uniqueArtifacts = first.artifacts.distinctBy {
+            it.contentIdentity() ?: it.relativePath
+        }
+        val observedProfiles = map(ProfileSnapshot::profile).distinctBy(DeliveryProfile::id)
+        return DeliveryVariant(
+            id = "variant-${stableId(first().signature())}",
+            versionName = first.app.versionName,
+            versionCode = first.app.versionCode,
+            minSdk = first.minSdk,
+            targetSdk = first.targetSdk,
+            profiles = observedProfiles,
+            downloadProfiles = listOf(observedProfiles.first()),
+            artifactCount = uniqueArtifacts.size,
+            totalBytes = uniqueArtifacts.sumOf { it.size.coerceAtLeast(0) }
+        )
+    }
+
+    private fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray())
+        .take(8)
+        .joinToString("") { "%02x".format(it) }
+
+    private fun isUnsupportedProfile(exception: Exception): Boolean =
+        generateSequence<Throwable>(exception) { it.cause }.any { cause ->
+            cause.javaClass.name.endsWith("InternalException\$AppNotSupported") ||
+                cause.javaClass.name.endsWith("InternalException\$EmptyDownloads") ||
+                cause.message == "Google Play returned no APK files for this device"
+        }
 
     private data class OwnedFile(
         val owner: App,
@@ -513,7 +676,7 @@ class AuroraGateway(private val context: Context) {
     private data class AnonymousCredentials(
         val email: String,
         val token: String,
-        val sourceVariant: ArchitectureVariant
+        val sourceProfileId: String
     )
 
     companion object {
@@ -522,6 +685,8 @@ class AuroraGateway(private val context: Context) {
         private const val DELIVERY_OK = 1
         private const val DELIVERY_NOT_PURCHASED = 3
         private const val LANGUAGE_REQUEST_INTERVAL_MS = 100L
+        private const val MIN_SUPPORTED_ANDROID_API = 21
+        private const val MAX_SELECTED_PROFILES = 64
         private val AUTH_FAILURE_CODES = setOf(401, 403)
     }
 }

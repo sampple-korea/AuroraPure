@@ -46,16 +46,10 @@ enum class VerificationState {
 }
 
 enum class ArchitectureChoice {
+    UNIVERSAL,
     BOTH,
     BIT_64,
     BIT_32;
-
-    val variants: List<ArchitectureVariant>
-        get() = when (this) {
-            BOTH -> listOf(ArchitectureVariant.BIT_64, ArchitectureVariant.BIT_32)
-            BIT_64 -> listOf(ArchitectureVariant.BIT_64)
-            BIT_32 -> listOf(ArchitectureVariant.BIT_32)
-        }
 
     companion object {
         fun fromStored(value: String): ArchitectureChoice =
@@ -65,21 +59,74 @@ enum class ArchitectureChoice {
 
 enum class ArchitectureVariant(
     val archiveDirectory: String,
-    val bitness: Int
+    val bitness: Int,
+    val platforms: List<String>
 ) {
-    BIT_64("64bit", 64),
-    BIT_32("32bit", 32)
+    ARM_64("arm64-v8a", 64, listOf("arm64-v8a")),
+    ARM_32("armeabi-v7a", 32, listOf("armeabi-v7a", "armeabi")),
+    X86_64("x86_64", 64, listOf("x86_64")),
+    X86("x86", 32, listOf("x86"))
+}
+
+enum class DensityChoice(val dpi: Int?) {
+    CURRENT(null),
+    ALL(-1),
+    LDPI(120),
+    MDPI(160),
+    TVDPI(213),
+    HDPI(240),
+    XHDPI(320),
+    XXHDPI(480),
+    XXXHDPI(640);
+
+    fun resolve(currentDpi: Int): List<Int> = when (this) {
+        CURRENT -> listOf(currentDpi)
+        ALL -> STANDARD_DENSITIES
+        else -> listOf(requireNotNull(dpi))
+    }
+
+    companion object {
+        val STANDARD_DENSITIES = listOf(120, 160, 213, 240, 320, 480, 640)
+
+        fun fromStored(value: String): DensityChoice =
+            entries.firstOrNull { it.name == value } ?: CURRENT
+    }
 }
 
 data class DeliveryProfile(
     val variant: ArchitectureVariant,
-    val platforms: List<String>
+    val platforms: List<String>,
+    val densityDpi: Int,
+    val sdkVersion: Int
 ) {
     init {
         require(platforms.isNotEmpty()) { "A delivery profile needs at least one ABI" }
+        require(densityDpi > 0) { "A delivery profile needs a positive screen density" }
+        require(sdkVersion >= 21) { "A delivery profile needs Android 5.0 or newer" }
     }
 
     val primaryAbi: String get() = platforms.first()
+    val id: String get() = "${variant.archiveDirectory}-${densityDpi}dpi-api$sdkVersion"
+}
+
+data class DeliveryVariant(
+    val id: String,
+    val versionName: String,
+    val versionCode: Long,
+    val minSdk: Int,
+    val targetSdk: Int,
+    val profiles: List<DeliveryProfile>,
+    val downloadProfiles: List<DeliveryProfile>,
+    val artifactCount: Int,
+    val totalBytes: Long,
+    val universal: Boolean = false
+) {
+    val architectures: List<ArchitectureVariant>
+        get() = profiles.map(DeliveryProfile::variant).distinct()
+    val densityDpis: List<Int>
+        get() = profiles.map(DeliveryProfile::densityDpi).distinct().sorted()
+    val testedSdkVersions: List<Int>
+        get() = profiles.map(DeliveryProfile::sdkVersion).distinct().sorted()
 }
 
 data class AppSummary(
@@ -97,6 +144,8 @@ data class AppSummary(
 
 data class ArtifactPlan(
     val variant: ArchitectureVariant,
+    val densityDpi: Int,
+    val sdkVersion: Int,
     val ownerPackage: String,
     val ownerVersionCode: Long,
     val name: String,
@@ -116,8 +165,24 @@ data class ArtifactPlan(
             } else {
                 "app/$safeName"
             }
-            return "variants/${variant.archiveDirectory}/$ownerPath"
+            return "profiles/${variant.archiveDirectory}/${densityDpi}dpi/api$sdkVersion/$ownerPath"
         }
+
+    fun contentIdentity(): String? {
+        val referenceHash = when {
+            sha256.isNotBlank() -> "sha256:${sha256.lowercase()}"
+            sha1.isNotBlank() -> "sha1:${sha1.lowercase()}"
+            else -> return null
+        }
+        return listOf(
+            ownerPackage,
+            ownerVersionCode.toString(),
+            name,
+            type,
+            size.toString(),
+            referenceHash
+        ).joinToString("|")
+    }
 
     private fun safePathSegment(value: String): String {
         val sanitized = value.replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -131,29 +196,41 @@ data class DownloadPlan(
     val displayName: String,
     val versionName: String,
     val versionCode: Long,
+    val minSdk: Int,
+    val targetSdk: Int,
     val checkedAt: Long,
     val deviceDescription: String,
     val architectureChoice: ArchitectureChoice,
+    val densityChoice: DensityChoice,
     val deliveryProfiles: List<DeliveryProfile>,
     val requestedLocales: List<String>,
     val artifacts: List<ArtifactPlan>,
     val hasAdditionalData: Boolean
 ) {
-    val totalBytes: Long get() = artifacts.sumOf { it.size.coerceAtLeast(0) }
-    val isSingleApk: Boolean get() = artifacts.size == 1 && !artifacts.single().isDependency
+    val uniqueArtifacts: List<ArtifactPlan>
+        get() = artifacts.distinctBy { it.contentIdentity() ?: it.relativePath }
+    val totalBytes: Long get() = uniqueArtifacts.sumOf { it.size.coerceAtLeast(0) }
+    val isSingleApk: Boolean
+        get() = uniqueArtifacts.size == 1 && !uniqueArtifacts.single().isDependency
 
     fun fingerprint(): String {
         val canonical = buildString {
             append(packageName).append('|').append(versionCode).append('|')
+            append(minSdk).append('|').append(targetSdk).append('|')
             append(deviceDescription).append('|').append(architectureChoice.name).append('|')
+            append(densityChoice.name).append('|')
             append(hasAdditionalData).append('\n')
             deliveryProfiles.forEach { profile ->
                 append(profile.variant.name).append('|')
-                append(profile.platforms.joinToString(",")).append('\n')
+                append(profile.platforms.joinToString(",")).append('|')
+                append(profile.densityDpi).append('|')
+                append(profile.sdkVersion).append('\n')
             }
             append("locales|").append(requestedLocales.joinToString(",")).append('\n')
             artifacts.sortedBy { it.relativePath }.forEach {
                 append(it.variant.name).append('|')
+                append(it.densityDpi).append('|')
+                append(it.sdkVersion).append('|')
                 append(it.ownerPackage).append('|')
                 append(it.ownerVersionCode).append('|')
                 append(it.relativePath).append('|')
@@ -176,6 +253,8 @@ data class DownloadRecord(
     val versionName: String,
     val versionCode: Long,
     val architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH,
+    val densityChoice: DensityChoice = DensityChoice.CURRENT,
+    val deliveryProfiles: List<DeliveryProfile> = emptyList(),
     val planFingerprint: String,
     val checkedAt: Long,
     val createdAt: Long,
@@ -253,12 +332,16 @@ data class PureUiState(
     val query: String = "",
     val results: List<AppSummary> = emptyList(),
     val selected: AppSummary? = null,
+    val variants: List<DeliveryVariant> = emptyList(),
+    val selectedVariantId: String = "",
+    val discoveringVariants: Boolean = false,
     val records: List<DownloadRecord> = emptyList(),
     val busy: Boolean = false,
     val message: String = "",
     val connection: ConnectionState = ConnectionState.IDLE,
     val confirmation: DownloadConfirmation? = null,
     val architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH,
+    val densityChoice: DensityChoice = DensityChoice.CURRENT,
     val themeMode: Int = 0,
     val keepScreenOn: Boolean = false,
     val customFolderUri: String = ""

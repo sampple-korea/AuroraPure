@@ -17,6 +17,7 @@ import com.aurora.pure.data.ConnectionState
 import com.aurora.pure.data.DownloadConfirmation
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.data.DownloadRecord
+import com.aurora.pure.data.DensityChoice
 import com.aurora.pure.data.PureUiState
 import com.aurora.pure.data.Screen
 import com.aurora.pure.data.TaskStatus
@@ -50,6 +51,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         PureUiState(
             records = restoredRecords.sortedByDescending { it.createdAt },
             architectureChoice = recordRepository.architectureChoice,
+            densityChoice = recordRepository.densityChoice,
             themeMode = recordRepository.themeMode,
             keepScreenOn = recordRepository.keepScreenOn,
             customFolderUri = recordRepository.customFolderUri
@@ -105,7 +107,15 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             setBusy(true)
             runCatching { gateway.details(packageName) }
                 .onSuccess { app ->
-                    _uiState.update { it.copy(selected = app, screen = Screen.DETAILS, message = "") }
+                    _uiState.update {
+                        it.copy(
+                            selected = app,
+                            variants = emptyList(),
+                            selectedVariantId = "",
+                            screen = Screen.DETAILS,
+                            message = ""
+                        )
+                    }
                 }
                 .onFailure(::showError)
             setBusy(false)
@@ -115,12 +125,26 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun prepareDownload() {
         val selected = _uiState.value.selected ?: return
         if (!selected.isFree || _uiState.value.busy) return
-        val architectureChoice = _uiState.value.architectureChoice
+        val state = _uiState.value
+        val architectureChoice = state.architectureChoice
+        val densityChoice = state.densityChoice
+        val variant = state.variants.firstOrNull { it.id == state.selectedVariantId }
+        if (variant == null) {
+            discoverVariants()
+            return
+        }
         viewModelScope.launch {
             Log.i(TAG, "Preparing delivery for ${selected.packageName}")
             setBusy(true)
             _uiState.update { it.copy(connection = ConnectionState.CONNECTING) }
-            runCatching { gateway.resolvePlan(selected.packageName, architectureChoice) }
+            runCatching {
+                gateway.resolvePlan(
+                    packageName = selected.packageName,
+                    architectureChoice = architectureChoice,
+                    densityChoice = densityChoice,
+                    selectedProfiles = variant.downloadProfiles
+                )
+            }
                 .onSuccess { plan ->
                     Log.i(
                         TAG,
@@ -156,6 +180,51 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                     showError(it)
                 }
             setBusy(false)
+        }
+    }
+
+    fun discoverVariants() {
+        val selected = _uiState.value.selected ?: return
+        if (!selected.isFree || _uiState.value.busy) return
+        val architectureChoice = _uiState.value.architectureChoice
+        val densityChoice = _uiState.value.densityChoice
+        viewModelScope.launch {
+            setBusy(true)
+            _uiState.update {
+                it.copy(
+                    connection = ConnectionState.CONNECTING,
+                    discoveringVariants = true,
+                    variants = emptyList(),
+                    selectedVariantId = ""
+                )
+            }
+            runCatching {
+                gateway.discoverVariants(
+                    selected.packageName,
+                    architectureChoice,
+                    densityChoice
+                )
+            }.onSuccess { variants ->
+                val preferred = variants.firstOrNull { it.universal } ?: variants.first()
+                _uiState.update {
+                    it.copy(
+                        connection = ConnectionState.CONNECTED,
+                        variants = variants,
+                        selectedVariantId = preferred.id
+                    )
+                }
+            }.onFailure {
+                _uiState.update { state -> state.copy(connection = ConnectionState.FAILED) }
+                showError(it)
+            }
+            _uiState.update { it.copy(discoveringVariants = false) }
+            setBusy(false)
+        }
+    }
+
+    fun selectVariant(id: String) {
+        if (_uiState.value.variants.any { it.id == id }) {
+            _uiState.update { it.copy(selectedVariantId = id) }
         }
     }
 
@@ -226,7 +295,9 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             updateRecord(record.id) { it.copy(status = TaskStatus.CHECKING, error = "") }
             val latest = gateway.resolvePlan(
                 record.packageName,
-                record.architectureChoice
+                record.architectureChoice,
+                record.densityChoice,
+                record.deliveryProfiles
             ).copy(id = record.id)
             _uiState.update { it.copy(connection = ConnectionState.CONNECTED) }
             if (latest.fingerprint() != record.planFingerprint) {
@@ -244,7 +315,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     status = TaskStatus.DOWNLOADING,
                     totalBytes = latest.totalBytes,
-                    totalFiles = latest.artifacts.size,
+                    totalFiles = latest.uniqueArtifacts.size,
                     checkedAt = latest.checkedAt
                 )
             }
@@ -277,7 +348,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     status = TaskStatus.COMPLETED,
                     downloadedBytes = latest.totalBytes,
-                    completedFiles = latest.artifacts.size,
+                    completedFiles = latest.uniqueArtifacts.size,
                     completedAt = System.currentTimeMillis(),
                     outputUri = exported.uri,
                     outputName = exported.displayName,
@@ -328,7 +399,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             setBusy(true)
             runCatching {
-                gateway.resolvePlan(record.packageName, record.architectureChoice).copy(id = record.id)
+                gateway.resolvePlan(
+                    record.packageName,
+                    record.architectureChoice,
+                    record.densityChoice,
+                    record.deliveryProfiles
+                ).copy(id = record.id)
             }
                 .onSuccess { plan ->
                     if (plan.fingerprint() != record.planFingerprint) {
@@ -439,7 +515,24 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setArchitectureChoice(choice: ArchitectureChoice) {
         recordRepository.architectureChoice = choice
-        _uiState.update { it.copy(architectureChoice = choice) }
+        _uiState.update {
+            it.copy(
+                architectureChoice = choice,
+                variants = emptyList(),
+                selectedVariantId = ""
+            )
+        }
+    }
+
+    fun setDensityChoice(choice: DensityChoice) {
+        recordRepository.densityChoice = choice
+        _uiState.update {
+            it.copy(
+                densityChoice = choice,
+                variants = emptyList(),
+                selectedVariantId = ""
+            )
+        }
     }
 
     fun setCustomFolder(uri: String) {
@@ -493,7 +586,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(connection = ConnectionState.CONNECTING) }
             gateway.disconnect()
             runCatching {
-                gateway.connectProfiles(_uiState.value.architectureChoice, force = true)
+                gateway.connectProfiles(
+                    _uiState.value.architectureChoice,
+                    DensityChoice.CURRENT,
+                    force = true
+                )
             }
                 .onSuccess {
                     _uiState.update { state ->
@@ -522,12 +619,14 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         versionName = versionName,
         versionCode = versionCode,
         architectureChoice = architectureChoice,
+        densityChoice = densityChoice,
+        deliveryProfiles = deliveryProfiles,
         planFingerprint = fingerprint(),
         checkedAt = checkedAt,
         createdAt = System.currentTimeMillis(),
         status = TaskStatus.QUEUED,
         totalBytes = totalBytes,
-        totalFiles = artifacts.size,
+        totalFiles = uniqueArtifacts.size,
         hasAdditionalData = hasAdditionalData
     )
 
@@ -609,14 +708,16 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 string(R.string.error_wrong_package)
             raw == "Paid apps are not supported by Aurora Pure" ->
                 string(R.string.paid_unavailable)
-            raw == "Google Play returned no APK files for this device" ->
+            raw == "Google Play returned no APK files for this device" ||
+                raw == "Google Play returned no APK files for the selected delivery profiles" ->
                 string(R.string.error_no_apk)
             raw == "Google Play returned no base APK for a package" ->
                 string(R.string.error_no_base_apk)
             raw == "Google Play did not return every declared language split" ||
                 raw == "Google Play could not resolve declared language splits" ->
                 string(R.string.error_language_splits)
-            raw == "Google Play returned different versions across selected architectures" ->
+            raw == "Google Play returned different versions across selected architectures" ||
+                raw == "Google Play returned different versions across selected delivery profiles" ->
                 string(R.string.error_architecture_versions)
             raw == "Rejected a non-Google or non-HTTPS delivery URL" ||
                 raw == "Download URL is outside the approved Google delivery hosts" ||
