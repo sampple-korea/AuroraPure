@@ -1,6 +1,0 @@
-• Unterstützung für Token-Dispenser von Drittanbietern
-• Mehrere UI/UX-Verbesserungen und Fehlerbehebungen
-• Neue Funktion zur automatischen Cache-Bereinigung, um alte Downloads zu entfernen
-• Die Einstellung der Akzentfarbe wurde für Android-12+-Geräte entfernt
-• SessionInstaller: Möglichkeit, Aurora Store als Geräteeigentümer festzulegen und im Hintergrund zu installieren (Credits: @s1204IT)
-• SessionInstaller: Unterstützung von Installationswarteschlangen

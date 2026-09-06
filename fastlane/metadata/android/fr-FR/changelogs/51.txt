@@ -1,1 +1,0 @@
-• Correction d'un problème de recherche, utilise les données WebAPI

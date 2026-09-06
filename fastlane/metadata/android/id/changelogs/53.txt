@@ -1,3 +1,0 @@
-• Memperbaiki aplikasi yang tidak menginstal pascapengunduhan
-• Mengizinkan untuk memilih direktori khusus untuk unduhan
-• Menambahkan opsi unduhan hanya menggunakan Wifi

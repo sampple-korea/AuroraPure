@@ -41,14 +41,7 @@ proguard/
 gradle-app.setting
 *.zip
 
-app/release/*
-app/nightly/*
-app/vanilla/*
-app/huawei/*
-app/preload/*
-
-
-#Exclude signing configurations & keystore
+# Exclude signing configurations and keystores.
 signing.properties
 *.keystore
 *.jks

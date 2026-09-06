@@ -1,3 +1,0 @@
-• Opraven drobný problém při migraci
-• Přidána automatická aktualizace pro testovací sestavení
-• Aktualizace překladů

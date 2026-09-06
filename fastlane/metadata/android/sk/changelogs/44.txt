@@ -1,6 +1,0 @@
-• Oprava zlyhania súvisiaceho s upozornením na inštalačné služby
-• V aplikácii zobrazovať iba platné falšované vlastnosti
-• Upozorniť používateľov, keď sú počas vyhľadávania obmedzení
-• Počas vyhľadávania zobraziť trblietavú animáciu na označenie pokroku
-• Opravené správanie navigácie pri zmene predvolenej karty
-• Opravená možnosť rýchleho ukončenia

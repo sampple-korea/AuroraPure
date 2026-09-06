@@ -1,2 +1,0 @@
-• Naprawiono błąd powodujący awarię SessionInstaller w starszych wersjach Androida
-• Zaktualizowano tłumaczenia

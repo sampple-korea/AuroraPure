@@ -1,3 +1,0 @@
-• Opravené aplikácie, ktoré sa neinštalujú po stiahnutí
-• Povolený výber vlastného adresára na stiahnutie
-• Pridaná možnosť sťahovania iba cez Wi-Fi

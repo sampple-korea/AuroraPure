@@ -1,2 +1,0 @@
-• 古い Android バージョンで SessionInstaller がクラッシュするバグの修正
-• 翻訳の更新

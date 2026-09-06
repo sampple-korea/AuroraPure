@@ -1,6 +1,0 @@
-• Correção de falhas em alguns dispositivos durante a pesquisa de palavras-chave não inglesas
-• Melhorar a página de aplicações e jogos
-• Adicionar uma opção para a instalação automática após a descarga da aplicação
-• Não reproduzir som de notificação quando a aplicação é instalada ou atualizada
-• Corrigir a falha em alguns dispositivos ao abrir os detalhes da aplicação
-• Adicionar caixa de diálogo de confirmação de desinstalação se estiver a utilizar o instalador de raiz

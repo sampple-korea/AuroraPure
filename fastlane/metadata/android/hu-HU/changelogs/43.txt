@@ -1,2 +1,0 @@
-• A befejezés gomb mindig aktív az engedélykérő lapon (javítja az új felhasználók bevezetését)
-• A GSON programkönyvtár TypeToken összetevőjének megtartása az optimalizált összeállításban (javítja az indításkori összeomlást)

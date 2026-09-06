@@ -1,3 +1,0 @@
-• Correction mineure au niveau de la migration de code
-• Ajout de la fonction de mise à jour auto pour la version Nightly d'Aurora
-• Mise à jour des traductions

@@ -1,4 +1,0 @@
-• Opraven problém s přihlášením k účtu Google
-• Položky navigační nabídky přesunuty do vlastního dialogu
-• Na zařízeních s velkou obrazovkou je nově použit NavigationRail
-• Možnost exportu stahování na externí umístění

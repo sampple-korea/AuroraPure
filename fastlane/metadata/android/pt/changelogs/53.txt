@@ -1,3 +1,0 @@
-• Corrigir aplicações que não são instaladas após a descarga
-• Permitir a escolha de um diretório de descarga personalizado
-• Adicionar opção de descarregamento apenas via Wi-Fi

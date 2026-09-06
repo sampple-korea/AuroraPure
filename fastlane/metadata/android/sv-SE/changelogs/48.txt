@@ -1,3 +1,0 @@
-• Stora interna förändringar relaterade till UI
-• Översättningsuppdateringar
-• Mindre buggfixar och förbättringar

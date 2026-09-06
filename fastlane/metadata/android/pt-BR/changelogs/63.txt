@@ -1,3 +1,0 @@
-• Corrigido pequeno problema de migração
-• Adicionada atualização automática para as compilações Nightly
-• Atualizações das traduções

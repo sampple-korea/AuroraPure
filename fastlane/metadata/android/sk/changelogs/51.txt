@@ -1,1 +1,0 @@
-• Opravený problém s vyhľadávaním pomocou údajov webového rozhrania API

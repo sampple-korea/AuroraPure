@@ -1,8 +1,0 @@
-• Ne demander l’autorisation d’accès à la mémoire que si cela est nécessaire
-• Refonte de la configuration de l’usurpation pour contourner l’autorisation d’accès à la mémoire pour l’importation et l’exportation
-• Ajout d’une option de vérification automatique de la présence de mises à jour pour les applis (un compte authentifié fonctionnel est nécessaire)
-• Correction du problème de bibliothèques nécessaires qui n’étaient pas installées avec certaines applis, telles que Chrome et la bibliothèque trichrome
-• Ignorer le dossier Downloads des sauvegardes lors de la sauvegarde du magasin Aurora
-• Implémenter le programme d’installation Shizuku (Android 8.0 et version ultérieure requise)
-• Fin de la prise en charge d’Android 4.4. La plus petite version d’Android requise est la version 5.0
-• Corrections mineures de bogues et améliorations

@@ -1,2 +1,0 @@
-• Vždy povolit tlačítko Dokončit na fragmentu oprávnění (opravuje nástup nového uživatele)
-• Zachování TypeToken knihovny GSON při optimalizaci sestavení (opravuje pád při spuštění)

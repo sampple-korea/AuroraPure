@@ -1,4 +1,0 @@
-• Veľké interné zmeny týkajúce sa používateľského rozhrania
-• Umožnené používateľom povoliť odkazy na aplikácie počas prvého nastavenia
-• Aktualizácie prekladov
-• Opravy menších chýb a vylepšenia

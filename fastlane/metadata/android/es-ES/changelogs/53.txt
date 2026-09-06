@@ -1,3 +1,0 @@
-• Se corrigieron las aplicaciones que no se instalaban después de descargarlas.
-• Le permite elegir su propio directorio de descarga
-• Se agregó la opción "Descargar solo mediante Wi-Fi"

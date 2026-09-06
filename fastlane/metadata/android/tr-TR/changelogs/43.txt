@@ -1,2 +1,0 @@
-• İzin parçasında her zaman bitir düğmesini etkinleştir (yeni kullanıcının ilk katılımını düzeltir)
-• Derlemeyi iyileştirirken GSON kütüphanesinin TypeToken'ını tut (başlangıç çökmesini düzeltir)

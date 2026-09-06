@@ -1,7 +1,0 @@
-• Se han corregido varios errores y se ha mejorado la interfaz de usuario.
-• Los permisos nuevos aparecen resaltados en la hoja de permisos.
-• Nuevas configuraciones de suplantación para dispositivos x86
-• Cambios en el sistema de descargas
-  • Se ha cambiado la ubicación predeterminada de las descargas al directorio de caché interno.
-  • Las descargas ahora se reanudan automáticamente al reiniciar si existen archivos
-• Actualizaciones de traducción

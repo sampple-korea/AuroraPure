@@ -1,3 +1,0 @@
-• Åtgärda appar som inte installerar efter nedladdning
-• Tillåt val av anpassad nedladdningskatalog
-• Lägg till nedladdningsalternativ för endast wifi

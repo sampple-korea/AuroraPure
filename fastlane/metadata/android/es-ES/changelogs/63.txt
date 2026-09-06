@@ -1,3 +1,0 @@
-• Solucionado un pequeño problema en la migración
-• Añadida actualización automática para las versiones Nightly
-• Actualizaciones en la traducción

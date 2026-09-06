@@ -1,2 +1,0 @@
-• Eski Android sürümlerinde SessionInstaller çökmesine neden olan bir hata düzeltildi
-• Çeviri güncellemeleri

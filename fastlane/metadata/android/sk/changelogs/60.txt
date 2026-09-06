@@ -1,2 +1,0 @@
-• Opravená chyba spôsobujúca pád SessionInstaller na starých verziách Androidu
-• Aktualizácie prekladov

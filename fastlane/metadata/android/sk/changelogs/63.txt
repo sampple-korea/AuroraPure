@@ -1,3 +1,0 @@
-• Opravený menší problém s migráciou
-• Pridaná automatická aktualizácia pre nočné zostavy
-• Aktualizácie prekladov

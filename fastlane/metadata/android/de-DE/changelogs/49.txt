@@ -1,4 +1,0 @@
-• Wichtige interne Änderungen im Zusammenhang mit der Bedienoberfläche
-• Benutzern ermöglicht, App-Links während der Ersteinrichtung zu aktivieren
-• Übersetzungen aktualisiert
-• Kleinere Fehlerbehebungen und Verbesserungen

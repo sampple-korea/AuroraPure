@@ -1,3 +1,0 @@
-• Fixed minor migration issue
-• Added auto update for Nightly builds
-• Translation updates

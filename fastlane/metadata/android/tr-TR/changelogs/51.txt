@@ -1,1 +1,0 @@
-• Arama sorunu düzeltildi, WebAPI verilerini kullanır

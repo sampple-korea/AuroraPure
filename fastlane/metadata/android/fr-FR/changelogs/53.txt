@@ -1,3 +1,0 @@
-• Correction du problème qui empêchait l’installation des applis après leur téléchargement
-• Possibilité de choisir le dossier de téléchargement
-• Ajout d’une option de téléchargement par Wi-Fi seulement
