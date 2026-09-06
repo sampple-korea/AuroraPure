@@ -18,7 +18,7 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
   <img src="docs/screenshots/cli-en.png" width="30%" alt="Aurora Pure 交互式桌面 CLI">
 </p>
 
-以上 Android 截图和 CLI 图来自 1.2.0 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。
+以上 Android 截图和 CLI 图来自 1.2.1 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。
 
 ## 下载
 
@@ -26,21 +26,22 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
 
 | 平台 | 文件 | 要求 |
 | --- | --- | --- |
-| Android | `AuroraPure-1.2.0.apk` | Android 10 / API 29 或更高 |
-| Linux、macOS CLI | `aurora-pure-cli-1.2.0.tar` 或 `.zip` | Java 21 或更高 |
-| Windows CLI | `aurora-pure-cli-1.2.0.zip` | Java 21 或更高；运行 `bin\aurora-pure.bat` |
+| Android | `AuroraPure-1.2.1.apk` | Android 10 / API 29 或更高 |
+| Linux、macOS CLI | `aurora-pure-cli-1.2.1.tar` 或 `.zip` | Java 21 或更高 |
+| Windows CLI | `aurora-pure-cli-1.2.1.zip` | Java 21 或更高；运行 `bin\aurora-pure.bat` |
 
 Aurora Pure 只负责下载。若要安装结果，请另行使用 Android 文件管理器或兼容的分包 APK 安装器。
 
-## 1.2.0 功能
+## 1.2.1 功能
 
 - 按应用名、包名、Google Play URL 或分享的 Play 链接搜索。
 - 显示图标、开发者、包名、版本信息和说明。
 - 无需输入个人 Google 账号的匿名会话。
-- 下载前查询**真实交付组合**，不根据文件名臆造变体。
-- 从列表选择 Google Play 实际返回的版本、ABI、最低 Android、实测 Android 配置和屏幕 DPI。
-- 独立的 **Universal ABI 模式**：探测 ARM64、ARM32、x86_64 和 x86，并纳入 Play 实际返回 APK 的全部架构。
-- 探测标准密度 120、160、213、240、320、480、640dpi，或只探测一个 DPI。
+- 打开应用详情时无需预选 ABI 或 DPI，自动查询支持的**全部真实交付组合**。
+- 按数字版本代码从新到旧分组结果，再从列表选择 Google Play 实际返回的 ABI、最低 Android、实测 Android 配置和屏幕 DPI。
+- 探测 ARM64、ARM32、x86_64 和 x86，并提供汇总 Play 实际返回最新集合的 **Universal 结果**。
+- 探测标准密度 120、160、213、240、320、480、640dpi，以及每条路径中真实存在的 Android 交付层级。
+- 最多并行查询四条独立交付路径，并在 Android 加载界面显示正在处理的 ABI、DPI 和 Android 配置。
 - 读取 base APK 的 split 声明，默认请求**全部已发布语言 APK**。
 - 最多并行下载四个唯一 APK，安全 Range 续传，并避免重复传输相同内容。
 - 验证 Play 参考哈希、APK 签名、签名者一致性、包名、版本、split 标识和最终保存文件。
@@ -49,9 +50,9 @@ Aurora Pure 只负责下载。若要安装结果，请另行使用 Android 文�
 
 ## 真实变体发现
 
-Aurora Pure 从 Android API 36 开始探测所选 ABI 与 DPI 范围。它读取 Google Play 实际返回 APK Manifest 的 `minSdk`，再探测下一个有意义的旧 Android 层级。每条 `ABI × DPI` 路径彼此独立。
+在 Android 中打开应用后，Aurora Pure 会自动开始完整扫描：ARM64、ARM32、x86_64、x86 与七种标准 DPI。每条 `ABI × DPI` 路径从 Android API 36 开始，读取 Google Play 实际返回 APK Manifest 的 `minSdk`，再探测下一个有意义的旧 Android 层级。独立路径采用有上限的并行处理，每条路径内部仍保持顺序。
 
-只有版本和实际 APK 文件集完全相同的响应才会合并。每个可选行都会显示：
+结果按数字 `versionCode` 从大到小分成版本区段，最新版本在前；不会按显示用的 `versionName` 字符串排序。同一版本内，只有版本和实际 APK 文件集完全相同的响应才会合并。每个可选行都会显示：
 
 - 交付版本名和版本代码；
 - 兼容 ABI；
@@ -60,9 +61,9 @@ Aurora Pure 从 Android API 36 开始探测所选 ABI 与 DPI 范围。它读取
 - 返回该文件集的 Android API 配置；
 - 唯一 APK 数量和下载大小。
 
-**Universal** 行只在 Universal ABI 模式中出现，会在不混合版本代码的前提下汇总最新已发现集合。系统会探测四种 ABI；如果 Play 没有为该应用交付某个架构，就会明确省略而不会伪造，并在行中显示实际返回的架构。其他多变体范围显示为独立的**合并所选变体**行。Aurora Pure 不会重写多个 split APK，也不会伪造单体通用 APK。
+**Universal** 行会在不混合版本代码的前提下汇总最新已发现集合。系统会探测四种 ABI；如果 Play 没有为该应用交付某个架构，就会明确省略而不会伪造，并在行中显示实际返回的架构。扫描结束后不会自动选择任何结果，选择权留给用户。Aurora Pure 不会重写多个 split APK，也不会伪造单体通用 APK。
 
-Google Play 还可能按设备功能或图形纹理格式等维度定向。1.2.0 明确覆盖 ABI、密度、Android 版本和语言维度，而不声称覆盖 Play 的所有可能维度。
+Google Play 还可能按设备功能或图形纹理格式等维度定向。1.2.1 明确覆盖 ABI、密度、Android 版本和语言维度，而不声称覆盖 Play 的所有可能维度。
 
 ## 输出约定
 
@@ -91,17 +92,16 @@ bin/aurora-pure
 bin/aurora-pure search "Google Authenticator"
 bin/aurora-pure info com.google.android.apps.authenticator2
 
-bin/aurora-pure variants com.google.android.apps.authenticator2 \
-  --architecture universal --density all --android-api 36
+bin/aurora-pure variants com.google.android.apps.authenticator2
 
 bin/aurora-pure download com.google.android.apps.authenticator2 \
-  --architecture universal --density all --variant universal --yes
+  --variant universal --yes
 
 bin/aurora-pure verify ~/Downloads/AuroraPure/example.apks
 bin/aurora-pure history --json
 ```
 
-架构范围包括 `universal`、`both`、`64`、`32`、`arm64`、`arm32`、`x86_64` 和 `x86`。DPI 可使用 `current`、`all`、`xxhdpi` 等标准名称或精确数字。`config` 只存储非敏感默认值；`history` 不保存令牌、Cookie 或签名下载 URL。
+CLI 默认也会扫描全部组合。只有在自动化中有意缩小范围时，才需要使用 `--architecture`（`universal`、`both`、`64`、`32`、`arm64`、`arm32`、`x86_64`、`x86`）、`--density`（`current`、`all`、标准名称或精确 DPI）和 `--android-api`。`config` 只存储语言、下载并行数与输出位置；`history` 不保存令牌、Cookie 或签名下载 URL。
 
 ## 有意移除的功能
 
@@ -129,4 +129,4 @@ Android 应用完全离开前台时会暂停网络传输。返回并选择“继
 
 更多验证和签名说明见 [BUILDING.md](BUILDING.md)。Aurora Pure 派生自 [Aurora Store 4.8.3](https://gitlab.com/AuroraOSS/AuroraStore/-/tree/4.8.3) 的提交 `e9be2c8293e02cc362d603df6b12b019fdb849f2`，按 GNU GPL v3 或更高版本发布。
 
-“最新”始终表示 Google Play 当前为所选匿名交付配置提供的版本，而不保证是全球最高版本。非官方 Google Play API 与外部匿名凭据服务可能发生变化或暂时不可用。
+“最新”表示 Aurora Pure 在全部可查询匿名交付配置中当前观察到的版本，而不保证是全球最高版本。非官方 Google Play API 与外部匿名凭据服务可能发生变化或暂时不可用。

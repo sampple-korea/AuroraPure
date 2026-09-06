@@ -18,7 +18,7 @@ Aurora Pure is a download-only Android app and desktop CLI for saving APK files 
   <img src="docs/screenshots/cli-en.png" width="30%" alt="Aurora Pure interactive desktop CLI">
 </p>
 
-The Android screenshots and CLI capture above are generated from the 1.2.0 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
+The Android screenshots and CLI capture above are generated from the 1.2.1 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
 
 ## Download
 
@@ -26,21 +26,22 @@ Get release files from [GitHub Releases](https://github.com/sampple-korea/Aurora
 
 | Platform | Release file | Requirement |
 | --- | --- | --- |
-| Android | `AuroraPure-1.2.0.apk` | Android 10 / API 29 or newer |
-| Linux and macOS CLI | `aurora-pure-cli-1.2.0.tar` or `.zip` | Java 21 or newer |
-| Windows CLI | `aurora-pure-cli-1.2.0.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
+| Android | `AuroraPure-1.2.1.apk` | Android 10 / API 29 or newer |
+| Linux and macOS CLI | `aurora-pure-cli-1.2.1.tar` or `.zip` | Java 21 or newer |
+| Windows CLI | `aurora-pure-cli-1.2.1.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
 
 Aurora Pure downloads files only. To install a downloaded app, use Android's file manager or a compatible split-APK installer separately.
 
-## What 1.2.0 can do
+## What 1.2.1 can do
 
 - Search by app name, package name, Google Play URL, or a shared Play link.
 - Show the app icon, developer, package name, version metadata, and description.
 - Use an anonymous session without entering a personal Google account.
-- Discover **actual delivery combinations** before download instead of inventing variants from filenames.
-- List and select the version, ABI, minimum Android version, tested Android profile, and screen DPI returned by Google Play.
-- Offer a separate **Universal ABI mode** that probes ARM64, ARM32, x86_64, and x86, then includes every architecture for which Play actually returns APKs.
-- Probe the standard density buckets: 120, 160, 213, 240, 320, 480, and 640 dpi, or one selected DPI.
+- Automatically discover the complete supported delivery matrix when an app is opened, without ABI or DPI preselection.
+- Group results by numeric version code, newest first, then let the user select the version, ABI, minimum Android version, tested Android profile, and screen DPI returned by Google Play.
+- Offer a **Universal** result that includes every latest architecture set Play actually returned after probing ARM64, ARM32, x86_64, and x86.
+- Probe the standard density buckets—120, 160, 213, 240, 320, 480, and 640dpi—and follow each path through observed Android delivery tiers.
+- Query up to four independent delivery paths concurrently and show the active ABI/DPI/Android work in the Android loading view.
 - Read the delivered base APK's split declaration and request **every advertised language APK by default**.
 - Download up to four unique APKs in parallel, safely resume byte ranges, and avoid transferring identical content twice.
 - Verify Play-provided hashes, APK signatures, signer consistency, package names, versions, split identities, and the final saved file.
@@ -49,9 +50,9 @@ Aurora Pure downloads files only. To install a downloaded app, use Android's fil
 
 ## Actual variant discovery
 
-Aurora Pure probes the selected ABI and DPI scope starting with Android API 36. It reads the `minSdk` from the APK that Google Play actually returned, then probes the next meaningful older Android tier. Each `ABI × DPI` path is followed independently.
+Opening an app on Android automatically starts a complete scan: ARM64, ARM32, x86_64, and x86 across all seven standard DPI buckets. Each `ABI × DPI` path begins at Android API 36, reads the `minSdk` from the APK Play actually returned, and then probes the next meaningful older Android tier. Independent paths run with bounded concurrency while traversal inside each path remains ordered.
 
-Results are grouped only when their version and real APK artifact set are identical. Every selectable row therefore represents an observed combination and shows:
+Results are split into version sections ordered by numeric `versionCode`, newest first. The display-oriented `versionName` is never compared as a string. Within each version, results are grouped only when their version and real APK artifact set are identical. Every selectable row therefore represents an observed combination and shows:
 
 - delivered version name and version code;
 - one or more compatible ABIs;
@@ -60,9 +61,9 @@ Results are grouped only when their version and real APK artifact set are identi
 - Android API profiles that returned that exact set;
 - unique APK count and download size.
 
-The **Universal** row exists only in Universal ABI mode and combines the latest discovered sets without mixing version codes. All four ABI families are probed; a family that Play does not deliver for that app is omitted rather than fabricated, and the row shows exactly which families were returned. Other multi-variant scopes use a clearly separate **Combined** row. Aurora Pure does not rewrite or merge several split APKs into a fabricated monolithic APK.
+The **Universal** row combines the latest discovered sets without mixing version codes. All four ABI families are probed; a family that Play does not deliver for that app is omitted rather than fabricated, and the row shows exactly which families were returned. Nothing is selected until the user chooses a result. Aurora Pure does not rewrite or merge several split APKs into a fabricated monolithic APK.
 
-Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.2.0 promises the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
+Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.2.1 covers the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
 
 ## Output contract
 
@@ -92,13 +93,12 @@ Every feature is also scriptable:
 bin/aurora-pure search "Google Authenticator"
 bin/aurora-pure info com.google.android.apps.authenticator2
 
-# Display only combinations actually returned for all ABIs and standard DPI buckets
-bin/aurora-pure variants com.google.android.apps.authenticator2 \
-  --architecture universal --density all --android-api 36
+# Display every combination returned for all ABIs and standard DPI buckets
+bin/aurora-pure variants com.google.android.apps.authenticator2
 
 # Resolve every declared language split and download the Universal latest set
 bin/aurora-pure download com.google.android.apps.authenticator2 \
-  --architecture universal --density all --variant universal --yes
+  --variant universal --yes
 
 # Re-open and cryptographically verify an existing result
 bin/aurora-pure verify ~/Downloads/AuroraPure/example.apks
@@ -108,7 +108,7 @@ bin/aurora-pure variants com.example.app --json
 bin/aurora-pure history --json
 ```
 
-Available architecture scopes are `universal`, `both`, `64`, `32`, `arm64`, `arm32`, `x86_64`, and `x86`. Density accepts `current`, `all`, a standard name such as `xxhdpi`, or an exact numeric DPI. `config` stores non-secret defaults; `history` never stores tokens, cookies, or signed delivery URLs; `doctor` checks the runtime and local paths.
+Complete discovery is the CLI default too. Scripts may deliberately narrow a scan with `--architecture` (`universal`, `both`, `64`, `32`, `arm64`, `arm32`, `x86_64`, or `x86`), `--density` (`current`, `all`, a standard name, or an exact DPI), and `--android-api`. `config` stores only language, download parallelism, and output location; `history` never stores tokens, cookies, or signed delivery URLs.
 
 ## Deliberately absent
 
@@ -153,4 +153,4 @@ Aurora Pure is derived from [Aurora Store 4.8.3](https://gitlab.com/AuroraOSS/Au
 - [Build and signing guide](BUILDING.md)
 - [GNU GPL v3 license](LICENSE)
 
-Google Play's unofficial API and the external anonymous credential service can change or become temporarily unavailable. “Latest” always means the version currently offered to the selected anonymous delivery profiles—not a promise of the globally highest version number.
+Google Play's unofficial API and the external anonymous credential service can change or become temporarily unavailable. “Latest” always means the version currently observed across the anonymous delivery profiles Aurora Pure can query—not a promise of the globally highest version number.

@@ -55,6 +55,7 @@
     <string name="universal_variant">ユニバーサル · 検出した最新セットすべて</string>
     <string name="combined_variant">選択範囲を統合 · 最新バリアントすべて</string>
     <string name="variant_version">%1$s (%2$s)</string>
+    <string name="version_group_header">%1$s · バージョンコード %2$s</string>
     <string name="minimum_android">最小 Android</string>
     <string name="android_api_value">Android %1$s 以上 · API %2$d</string>
     <string name="probed_android">確認済み環境</string>

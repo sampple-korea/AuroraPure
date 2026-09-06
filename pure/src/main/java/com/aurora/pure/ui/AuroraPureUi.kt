@@ -252,6 +252,9 @@ private fun AppResultCard(app: AppSummary, onClick: () -> Unit) {
 @Composable
 private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
     val app = state.selected ?: return
+    val variantsByVersion = state.variants
+        .groupBy(DeliveryVariant::versionCode)
+        .toSortedMap(reverseOrder())
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
@@ -345,12 +348,26 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                     fontWeight = FontWeight.Bold
                 )
             }
-            items(state.variants, key = DeliveryVariant::id) { variant ->
-                VariantCard(
-                    variant = variant,
-                    selected = variant.id == state.selectedVariantId,
-                    onClick = { viewModel.selectVariant(variant.id) }
-                )
+            variantsByVersion.forEach { (versionCode, variants) ->
+                item(key = "version-$versionCode") {
+                    Text(
+                        stringResource(
+                            R.string.version_group_header,
+                            variants.first().versionName,
+                            versionCode.toString()
+                        ),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                items(variants, key = DeliveryVariant::id) { variant ->
+                    VariantCard(
+                        variant = variant,
+                        selected = variant.id == state.selectedVariantId,
+                        onClick = { viewModel.selectVariant(variant.id) }
+                    )
+                }
             }
             item {
                 Button(

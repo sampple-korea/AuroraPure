@@ -56,6 +56,7 @@
     <string name="universal_variant">Universal · all discovered latest-version sets</string>
     <string name="combined_variant">Combined · all latest variants in the selected scope</string>
     <string name="variant_version">%1$s (%2$s)</string>
+    <string name="version_group_header">%1$s · version code %2$s</string>
     <string name="minimum_android">Minimum Android</string>
     <string name="android_api_value">Android %1$s+ · API %2$d</string>
     <string name="probed_android">Observed on</string>

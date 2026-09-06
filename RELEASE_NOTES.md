@@ -1,3 +1,39 @@
+# Aurora Pure 1.2.1
+
+This release removes pre-discovery ABI and DPI selection. Opening an app now discovers the complete supported delivery matrix first and lets the user choose from actual Google Play results.
+
+## Result-first discovery
+
+- App details automatically probe ARM64, ARM32, x86_64, and x86 across 120/160/213/240/320/480/640dpi.
+- Each ABI × DPI path follows the Android tiers returned by Play, starting at API 36 and stepping through real APK `minSdk` boundaries.
+- No result is selected automatically; the user chooses an observed delivery result or the Universal latest-set row after discovery.
+- Results are divided into version sections ordered by numeric `versionCode`, newest first; `versionName` remains a display label and is never sorted lexically.
+- Unsupported ABI/DPI paths are omitted without hiding authentication, rate-limit, or protocol errors.
+- Equivalent profiles are grouped only when their version and APK byte identities match.
+
+## Clear progress and faster scans
+
+- Up to four independent ABI × DPI paths are queried concurrently while Android-version traversal within each path remains ordered.
+- The Android loading card shows the active ABI, DPI, Android/API profiles and completed probe count.
+- Removed ABI/DPI controls and repetitive internal-policy explanations from Android details and settings.
+- Added per-artifact cache locking so concurrent profiles cannot race while storing the same base APK.
+- Authentication failures are associated with the request that produced them instead of a shared last-response value.
+
+## CLI behavior
+
+- Guided mode proceeds directly from app selection to complete discovery without architecture, DPI, or API pre-prompts.
+- `variants` and `download` scan all ABIs and standard DPI buckets by default.
+- `--architecture`, `--density`, and `--android-api` remain explicit advanced filters for scripts that intentionally want a smaller scope.
+- Removed obsolete persistent discovery-filter defaults from CLI configuration.
+
+## Verification performed for this release
+
+- Android unit tests and Lint; CLI unit tests and distribution launch checks.
+- Live unfiltered Google Play scan of 84 profiles, producing 30 selectable delivery results across seven DPI buckets and multiple Android tiers.
+- Confirmed that unavailable x86/x86_64 deliveries are omitted while returned ARM64/ARM32 combinations remain selectable.
+
+---
+
 # Aurora Pure 1.2.0
 
 This release makes Aurora Pure global, adds a full desktop CLI, and replaces synthetic variant labels with selectable Google Play delivery results.

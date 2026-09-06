@@ -55,6 +55,7 @@
     <string name="universal_variant">通用 · 已发现的全部最新版本集</string>
     <string name="combined_variant">合并 · 所选范围内的全部最新变体</string>
     <string name="variant_version">%1$s (%2$s)</string>
+    <string name="version_group_header">%1$s · 版本代码 %2$s</string>
     <string name="minimum_android">最低 Android</string>
     <string name="android_api_value">Android %1$s 及以上 · API %2$d</string>
     <string name="probed_android">实测环境</string>

@@ -55,6 +55,7 @@
     <string name="universal_variant">유니버설 · 발견된 최신 버전 세트 전체</string>
     <string name="combined_variant">선택 범위 전체 · 발견된 최신 버전 세트 묶음</string>
     <string name="variant_version">%1$s (%2$s)</string>
+    <string name="version_group_header">%1$s · 버전 코드 %2$s</string>
     <string name="minimum_android">최소 Android</string>
     <string name="android_api_value">Android %1$s 이상 · API %2$d</string>
     <string name="probed_android">확인된 환경</string>

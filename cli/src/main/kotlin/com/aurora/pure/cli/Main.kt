@@ -25,7 +25,7 @@ import picocli.CommandLine.ScopeType
 @Command(
     name = "aurora-pure",
     mixinStandardHelpOptions = true,
-    version = ["Aurora Pure CLI 1.2.0"],
+    version = ["Aurora Pure CLI 1.2.1"],
     description = ["Interactive, download-only Google Play APK client."],
     subcommands = [
         SearchCommand::class,
@@ -546,29 +546,38 @@ private fun printApp(app: AppInfo, messages: Messages) {
 
 private fun printVariants(variants: List<DeliveryVariant>, messages: Messages) {
     println(messages["table.header"])
-    variants.forEachIndexed { index, variant ->
-        val version = "${variant.versionName} (${variant.versionCode})"
-        val architecture = variant.architectures.joinToString("+")
-        val android = "${DeviceProfiles.androidRelease(variant.minSdk)}+ (API ${variant.minSdk})"
-        val density = variant.densities.joinToString(",")
-        val tested = variant.androidApis.joinToString(",") { "${DeviceProfiles.androidRelease(it)}/$it" }
-        val label = when {
-            variant.universal -> "${messages["label.universal"]}: "
-            variant.aggregate -> "${messages["label.combined"]}: "
-            else -> ""
-        }
-        println("${index + 1} | $label$version | $architecture | $android | $density | $tested | " +
-            "${variant.artifactCount} | ${formatBytes(variant.totalBytes)}")
-        println("    id=${variant.id}")
-        variant.profiles
-            .groupBy { it.abi.label to it.densityDpi }
-            .toSortedMap(compareBy<Pair<String, Int>>({ it.first }, { it.second }))
-            .forEach { (target, profiles) ->
-                val apis = profiles.map(DeliveryProfile::sdkVersion).distinct().sortedDescending()
-                println("    ${messages["label.actual_combination"]}: ${target.first} × ${target.second}dpi × " +
-                    apis.joinToString(", ") { "Android ${DeviceProfiles.androidRelease(it)} / API $it" })
+    variants.withIndex()
+        .groupBy { it.value.versionCode }
+        .toSortedMap(reverseOrder())
+        .forEach { (versionCode, indexedVariants) ->
+            println()
+            println(messages.text("version.group", indexedVariants.first().value.versionName, versionCode))
+            indexedVariants.forEach { indexedVariant ->
+                val index = indexedVariant.index
+                val variant = indexedVariant.value
+                val version = "${variant.versionName} (${variant.versionCode})"
+                val architecture = variant.architectures.joinToString("+")
+                val android = "${DeviceProfiles.androidRelease(variant.minSdk)}+ (API ${variant.minSdk})"
+                val density = variant.densities.joinToString(",")
+                val tested = variant.androidApis.joinToString(",") { "${DeviceProfiles.androidRelease(it)}/$it" }
+                val label = when {
+                    variant.universal -> "${messages["label.universal"]}: "
+                    variant.aggregate -> "${messages["label.combined"]}: "
+                    else -> ""
+                }
+                println("${index + 1} | $label$version | $architecture | $android | $density | $tested | " +
+                    "${variant.artifactCount} | ${formatBytes(variant.totalBytes)}")
+                println("    id=${variant.id}")
+                variant.profiles
+                    .groupBy { it.abi.label to it.densityDpi }
+                    .toSortedMap(compareBy<Pair<String, Int>>({ it.first }, { it.second }))
+                    .forEach { (target, profiles) ->
+                        val apis = profiles.map(DeliveryProfile::sdkVersion).distinct().sortedDescending()
+                        println("    ${messages["label.actual_combination"]}: ${target.first} × ${target.second}dpi × " +
+                            apis.joinToString(", ") { "Android ${DeviceProfiles.androidRelease(it)} / API $it" })
+                    }
             }
-    }
+        }
 }
 
 private fun printPlan(plan: DownloadPlan, messages: Messages) {
