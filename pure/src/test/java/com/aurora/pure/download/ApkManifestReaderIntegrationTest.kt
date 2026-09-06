@@ -38,8 +38,8 @@ class ApkManifestReaderIntegrationTest {
             assertEquals(splitName, identity.splitName)
 
             val signature = ApkVerifier.Builder(apk)
-                .setMinCheckedPlatformVersion(23)
-                .setMaxCheckedPlatformVersion(36)
+                .setMinCheckedPlatformVersion(TEST_PLATFORM_API)
+                .setMaxCheckedPlatformVersion(TEST_PLATFORM_API)
                 .build()
                 .verify()
             assertTrue(
@@ -53,5 +53,6 @@ class ApkManifestReaderIntegrationTest {
         private const val FIXTURE_ENV = "AURORA_PURE_APK_FIXTURE_DIR"
         private const val PACKAGE_ENV = "AURORA_PURE_APK_FIXTURE_PACKAGE"
         private const val VERSION_ENV = "AURORA_PURE_APK_FIXTURE_VERSION"
+        private const val TEST_PLATFORM_API = 36
     }
 }

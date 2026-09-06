@@ -29,7 +29,7 @@
 
 ## 검증 범위
 
-- 단일 APK 및 실제 Google Play 분할 APK 4개 전달 경로
+- 실제 Google Play v2 전용 단일 APK와 분할 APK 2개·4개 전달 경로
 - 전경 이탈 일시정지와 Range 이어받기
 - APK별 해시·서명·패키지·버전 확인
 - ZIP 엔트리와 최종 저장본 SHA-256 재검증

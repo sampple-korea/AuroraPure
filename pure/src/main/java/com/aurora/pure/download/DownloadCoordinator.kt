@@ -236,10 +236,14 @@ class DownloadCoordinator(
                 limitations += "Google Play supplied no reference hash for one or more APKs"
             }
 
+            // The delivery plan is resolved for this device. Requiring an APK
+            // to verify on older Android releases can reject a valid modern
+            // v2/v3-only APK merely because it has no legacy v1 signature.
+            val currentPlatformApi = Build.VERSION.SDK_INT
             val apkResult = runCatching {
                 ApkVerifier.Builder(item.file)
-                    .setMinCheckedPlatformVersion(23)
-                    .setMaxCheckedPlatformVersion(Build.VERSION.SDK_INT)
+                    .setMinCheckedPlatformVersion(currentPlatformApi)
+                    .setMaxCheckedPlatformVersion(currentPlatformApi)
                     .build()
                     .verify()
             }.getOrNull()
