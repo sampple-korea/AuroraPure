@@ -51,6 +51,7 @@
     <string name="refresh_variants">실제 제공 구성 새로고침</string>
     <string name="available_variants">받을 수 있는 제공 구성</string>
     <string name="universal_variant">유니버설 · 발견된 최신 버전 세트 전체</string>
+    <string name="combined_variant">선택 범위 전체 · 발견된 최신 버전 세트 묶음</string>
     <string name="variant_version">%1$s (%2$s)</string>
     <string name="minimum_android">최소 Android</string>
     <string name="android_api_value">Android %1$s 이상 · API %2$d</string>

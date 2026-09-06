@@ -169,10 +169,12 @@ class ExportRepository(private val context: Context) {
         val architectures = outcome.plan.deliveryProfiles
             .map { it.variant }
             .distinct()
-        val abiTag = if (architectures.size > 1) {
-            "universal"
-        } else {
-            architectures.singleOrNull()?.archiveDirectory.orEmpty()
+        val abiTag = when {
+            outcome.plan.architectureChoice == com.aurora.pure.data.ArchitectureChoice.UNIVERSAL -> {
+                "universal"
+            }
+            architectures.size > 1 -> architectures.joinToString("-") { it.archiveDirectory }
+            else -> architectures.singleOrNull()?.archiveDirectory.orEmpty()
         }
         val densities = outcome.plan.deliveryProfiles
             .map { it.densityDpi }

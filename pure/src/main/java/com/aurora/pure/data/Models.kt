@@ -119,6 +119,7 @@ data class DeliveryVariant(
     val downloadProfiles: List<DeliveryProfile>,
     val artifactCount: Int,
     val totalBytes: Long,
+    val aggregate: Boolean = false,
     val universal: Boolean = false
 ) {
     val architectures: List<ArchitectureVariant>

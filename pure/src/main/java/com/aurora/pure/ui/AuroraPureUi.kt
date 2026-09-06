@@ -403,8 +403,14 @@ private fun VariantCard(
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
-                    if (variant.universal) {
-                        stringResource(R.string.universal_variant)
+                    if (variant.aggregate) {
+                        stringResource(
+                            if (variant.universal) {
+                                R.string.universal_variant
+                            } else {
+                                R.string.combined_variant
+                            }
+                        )
                     } else {
                         stringResource(
                             R.string.variant_version,
@@ -414,7 +420,7 @@ private fun VariantCard(
                     },
                     fontWeight = FontWeight.Bold
                 )
-                if (variant.universal) {
+                if (variant.aggregate) {
                     Text(
                         stringResource(
                             R.string.variant_version,

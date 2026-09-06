@@ -35,7 +35,6 @@ import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.security.MessageDigest
-import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -124,7 +123,9 @@ class AuroraGateway(private val context: Context) {
         val snapshots = mutableListOf<ProfileSnapshot>()
 
         initial.groupBy(DeliveryProfile::variant).forEach { (_, densityProfiles) ->
-            var sdkVersion = Build.VERSION.SDK_INT
+            // Probe from the newest profile supported by this release, not only the host OS.
+            // The returned APK manifest then points to the next real compatibility tier.
+            var sdkVersion = LATEST_SUPPORTED_ANDROID_API
             val visited = mutableSetOf<Int>()
             while (sdkVersion >= MIN_SUPPORTED_ANDROID_API && visited.add(sdkVersion)) {
                 val tierProfiles = densityProfiles.map { it.copy(sdkVersion = sdkVersion) }
@@ -170,9 +171,9 @@ class AuroraGateway(private val context: Context) {
             .filter { it.resolution.app.versionCode == latestVersion }
             .flatMap { it.resolution.artifacts }
             .distinctBy { it.contentIdentity() ?: it.relativePath }
-        val universal = latestGroups.takeIf { it.size > 1 }?.let { variants ->
+        val aggregate = latestGroups.takeIf { it.size > 1 }?.let { variants ->
             DeliveryVariant(
-                id = "universal-${stableId(variants.flatMap { it.profiles }.joinToString { it.id })}",
+                id = "aggregate-${stableId(variants.flatMap { it.profiles }.joinToString { it.id })}",
                 versionName = variants.first().versionName,
                 versionCode = latestVersion,
                 minSdk = variants.minOf(DeliveryVariant::minSdk),
@@ -182,10 +183,23 @@ class AuroraGateway(private val context: Context) {
                     .distinctBy(DeliveryProfile::id),
                 artifactCount = latestArtifacts.size,
                 totalBytes = latestArtifacts.sumOf { it.size.coerceAtLeast(0) },
-                universal = true
+                aggregate = true,
+                universal = architectureChoice == ArchitectureChoice.UNIVERSAL
             )
         }
-        if (universal == null) groups else listOf(universal) + groups
+        if (aggregate == null) {
+            groups.map { variant ->
+                if (architectureChoice == ArchitectureChoice.UNIVERSAL &&
+                    variant.architectures.toSet() == ArchitectureVariant.entries.toSet()
+                ) {
+                    variant.copy(aggregate = true, universal = true)
+                } else {
+                    variant
+                }
+            }
+        } else {
+            listOf(aggregate) + groups
+        }
     }
 
     suspend fun resolvePlan(
@@ -686,6 +700,7 @@ class AuroraGateway(private val context: Context) {
         private const val DELIVERY_NOT_PURCHASED = 3
         private const val LANGUAGE_REQUEST_INTERVAL_MS = 100L
         private const val MIN_SUPPORTED_ANDROID_API = 21
+        private const val LATEST_SUPPORTED_ANDROID_API = 36
         private const val MAX_SELECTED_PROFILES = 64
         private val AUTH_FAILURE_CODES = setOf(401, 403)
     }

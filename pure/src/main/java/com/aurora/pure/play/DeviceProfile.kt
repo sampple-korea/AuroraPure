@@ -7,11 +7,10 @@
 
 package com.aurora.pure.play
 
-import android.app.ActivityManager
 import android.content.Context
-import android.content.res.Configuration
 import android.content.res.Resources
 import android.os.Build
+import com.aurora.gplayapi.R as GPlayApiR
 import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.DeliveryProfile
@@ -71,60 +70,27 @@ object DeviceProfile {
     }
 
     fun properties(context: Context, profile: DeliveryProfile): Properties = Properties().apply {
-        setProperty("UserReadableName", "${Build.MANUFACTURER} ${Build.MODEL}")
-        setProperty("Build.HARDWARE", Build.HARDWARE.orEmpty())
-        setProperty("Build.RADIO", Build.getRadioVersion() ?: "unknown")
-        setProperty("Build.FINGERPRINT", Build.FINGERPRINT.orEmpty())
-        setProperty("Build.BRAND", Build.BRAND.orEmpty())
-        setProperty("Build.DEVICE", Build.DEVICE.orEmpty())
+        // Foreign ABI discovery needs a coherent reference device, rather than a native
+        // ARM fingerprint with only its Platforms field changed. These profiles ship in
+        // the pinned GPlayApi AAR and are then narrowed to the exact ABI/DPI/API probe.
+        context.resources.openRawResource(profileResource(profile.variant)).use(::load)
+        setProperty(
+            "UserReadableName",
+            "Aurora Pure ${profile.variant.archiveDirectory} ${profile.densityDpi}dpi API ${profile.sdkVersion}"
+        )
         setProperty("Build.VERSION.SDK_INT", profile.sdkVersion.toString())
         setProperty("Build.VERSION.RELEASE", androidRelease(profile.sdkVersion))
-        setProperty("Build.MODEL", Build.MODEL.orEmpty())
-        setProperty("Build.MANUFACTURER", Build.MANUFACTURER.orEmpty())
-        setProperty("Build.PRODUCT", Build.PRODUCT.orEmpty())
-        setProperty("Build.ID", Build.ID.orEmpty())
-        setProperty("Build.BOOTLOADER", Build.BOOTLOADER.orEmpty())
-
-        val configuration = context.resources.configuration
-        setProperty("TouchScreen", configuration.touchscreen.toString())
-        setProperty("Keyboard", configuration.keyboard.toString())
-        setProperty("Navigation", configuration.navigation.toString())
-        setProperty("ScreenLayout", (configuration.screenLayout and 15).toString())
-        setProperty(
-            "HasHardKeyboard",
-            (configuration.keyboard == Configuration.KEYBOARD_QWERTY).toString()
-        )
-        setProperty(
-            "HasFiveWayNavigation",
-            (configuration.navigation != Configuration.NAVIGATION_NONAV).toString()
-        )
-
-        val metrics = context.resources.displayMetrics
         setProperty("Screen.Density", profile.densityDpi.toString())
-        setProperty("Screen.Width", metrics.widthPixels.toString())
-        setProperty("Screen.Height", metrics.heightPixels.toString())
         setProperty("Platforms", profile.platforms.joinToString(","))
-        setProperty(
-            "Features",
-            context.packageManager.systemAvailableFeatures.mapNotNull { it.name }.joinToString(",")
-        )
         setProperty("Locales", allPlayLocales.joinToString(","))
-        setProperty(
-            "SharedLibraries",
-            context.packageManager.systemSharedLibraryNames?.joinToString(",").orEmpty()
-        )
-        val activityManager = context.getSystemService(ActivityManager::class.java)
-        setProperty("GL.Version", activityManager?.deviceConfigurationInfo?.reqGlEsVersion?.toString() ?: "0")
-        setProperty("GL.Extensions", "")
-
-        setProperty("Client", "android-google")
-        setProperty("GSF.version", "203019037")
-        setProperty("Vending.version", "82151710")
-        setProperty("Vending.versionString", "21.5.17-21 [0] [PR] 326734551")
-        setProperty("Roaming", "mobile-notroaming")
         setProperty("TimeZone", TimeZone.getDefault().id)
-        setProperty("CellOperator", "310")
-        setProperty("SimOperator", "38")
+    }
+
+    private fun profileResource(variant: ArchitectureVariant): Int = when (variant) {
+        ArchitectureVariant.ARM_64 -> GPlayApiR.raw.gplayapi_px_9a
+        ArchitectureVariant.ARM_32 -> GPlayApiR.raw.gplayapi_rm_5_pro
+        ArchitectureVariant.X86_64,
+        ArchitectureVariant.X86 -> GPlayApiR.raw.gplayapi_google_kiwi_x86_64
     }
 
     fun description(profiles: List<DeliveryProfile>): String = buildString {

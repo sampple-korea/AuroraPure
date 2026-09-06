@@ -19,4 +19,5 @@ dependencyResolutionManagement {
     }
 }
 include(":pure")
+include(":cli")
 rootProject.name = "AuroraPure"

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Aurora Pure contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-name: Android CI
+name: Aurora Pure CI
 
 on:
   push:
@@ -49,7 +49,24 @@ jobs:
             exit 1
           fi
 
-      - name: Test, lint, and build release
+      - name: Test, lint, and build Android and CLI releases
         run: >-
           ./gradlew --no-daemon --no-configuration-cache
           :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease
+          :cli:test :cli:distZip :cli:distTar
+
+      - name: Upload Android build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aurora-pure-android
+          path: pure/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload CLI builds
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aurora-pure-cli
+          path: |
+            cli/build/distributions/*.zip
+            cli/build/distributions/*.tar
+          if-no-files-found: error
