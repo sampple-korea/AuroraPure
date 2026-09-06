@@ -97,10 +97,6 @@ class CliPolicyTest {
             val store = ConfigStore(path)
             val expected = CliConfig(
                 language = "ko",
-                architecture = "universal",
-                density = "all",
-                currentDpi = 480,
-                androidApi = 35,
                 parallelism = 6,
                 outputDirectory = root.resolve("output").toString()
             )

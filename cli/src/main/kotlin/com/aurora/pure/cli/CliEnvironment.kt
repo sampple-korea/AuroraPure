@@ -21,22 +21,12 @@ import java.util.ResourceBundle
 
 data class CliConfig(
     var language: String = "auto",
-    var architecture: String = ArchitectureMode.BOTH.cliName,
-    var density: String = "current",
-    var currentDpi: Int = DensityMode.DEFAULT_DPI,
-    var androidApi: Int = PlayGateway.CURRENT_ANDROID_API,
     var parallelism: Int = DownloadEngine.DEFAULT_PARALLELISM,
     var outputDirectory: String = ""
 ) {
     fun validate(): CliConfig = apply {
         require(language in setOf("auto", "en", "ko", "ja", "zh", "zh-CN")) {
             "language must be auto, en, zh, ja, or ko"
-        }
-        ArchitectureMode.parse(architecture)
-        DensityMode.parse(density, currentDpi)
-        require(currentDpi in 72..1000) { "currentDpi must be between 72 and 1000" }
-        require(androidApi in PlayGateway.MIN_ANDROID_API..PlayGateway.CURRENT_ANDROID_API) {
-            "androidApi must be between ${PlayGateway.MIN_ANDROID_API} and ${PlayGateway.CURRENT_ANDROID_API}"
         }
         require(parallelism in 1..DownloadEngine.MAX_PARALLELISM) {
             "parallelism must be between 1 and ${DownloadEngine.MAX_PARALLELISM}"

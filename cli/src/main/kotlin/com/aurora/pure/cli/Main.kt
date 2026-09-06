@@ -66,10 +66,10 @@ class RootCommand : Callable<Int> {
 }
 
 class DeliveryOptions {
-    @Option(names = ["-a", "--architecture"], description = ["universal, both, 64, 32, arm64, arm32, x86_64, or x86"])
+    @Option(names = ["-a", "--architecture"], description = ["Optional scan filter: universal, both, 64, 32, arm64, arm32, x86_64, or x86; default scans all"])
     var architecture: String? = null
 
-    @Option(names = ["-d", "--density"], description = ["current, all, a named density, or an exact DPI number"])
+    @Option(names = ["-d", "--density"], description = ["Optional scan filter: current, all, a named density, or an exact DPI number; default scans all standard DPI"])
     var density: String? = null
 
     @Option(names = ["--current-dpi"], description = ["DPI used by the 'current' density mode"])
@@ -78,16 +78,16 @@ class DeliveryOptions {
     @Option(names = ["--android-api"], description = ["Highest Android API to probe (21-36)"])
     var androidApi: Int? = null
 
-    fun resolve(root: RootCommand): ResolvedDeliveryOptions {
-        val dpi = currentDpi ?: root.config.currentDpi
+    fun resolve(): ResolvedDeliveryOptions {
+        val dpi = currentDpi ?: DensityMode.DEFAULT_DPI
         require(dpi in 72..1000) { "DPI must be between 72 and 1000" }
-        val api = androidApi ?: root.config.androidApi
+        val api = androidApi ?: PlayGateway.CURRENT_ANDROID_API
         require(api in PlayGateway.MIN_ANDROID_API..PlayGateway.CURRENT_ANDROID_API) {
             "Android API must be between ${PlayGateway.MIN_ANDROID_API} and ${PlayGateway.CURRENT_ANDROID_API}"
         }
         return ResolvedDeliveryOptions(
-            architecture = ArchitectureMode.parse(architecture ?: root.config.architecture),
-            density = DensityMode.parse(density ?: root.config.density, dpi),
+            architecture = ArchitectureMode.parse(architecture ?: ArchitectureMode.UNIVERSAL.cliName),
+            density = DensityMode.parse(density ?: "all", dpi),
             maxSdk = api
         )
     }
@@ -157,7 +157,7 @@ class VariantsCommand : Callable<Int> {
         val packageName = requireNotNull(parsePackageName(input)) {
             "variants requires a package name or Google Play app URL"
         }
-        val options = delivery.resolve(root)
+        val options = delivery.resolve()
         val variants = discover(root, packageName, options, quiet = json)
         if (json) println(GSON.toJson(variants)) else printVariants(variants, root.messages)
         return 0
@@ -188,7 +188,7 @@ class DownloadCommand : Callable<Int> {
         val packageName = requireNotNull(parsePackageName(input)) {
             "download requires a package name or Google Play app URL"
         }
-        val options = delivery.resolve(root)
+        val options = delivery.resolve()
         val variants = discover(root, packageName, options, quiet = json)
         if (!json) printVariants(variants, root.messages)
         val selected = selectVariant(variants, variant, yes, root.messages)
@@ -325,10 +325,6 @@ class ConfigCommand : Callable<Int> {
             }
             when (key) {
                 "language" -> config.language = value
-                "architecture", "arch" -> config.architecture = ArchitectureMode.parse(value).cliName
-                "density", "dpi-mode" -> config.density = DensityMode.parse(value, config.currentDpi).name
-                "current-dpi", "dpi" -> config.currentDpi = value.toInt()
-                "android-api", "api" -> config.androidApi = value.toInt()
                 "parallel", "parallelism" -> config.parallelism = value.toInt()
                 "output", "output-directory" -> config.outputDirectory = Path.of(value).toString()
                 else -> throw IllegalArgumentException("Unknown configuration key: $key")
@@ -392,25 +388,18 @@ private class InteractiveWizard(private val root: RootCommand) {
         printApp(app, text)
         println()
 
-        val architecture = ArchitectureMode.parse(
-            ask(text.text("prompt.architecture", root.config.architecture)).ifBlank {
-                root.config.architecture
-            }
-        )
-        val densityRaw = ask(text.text("prompt.density", root.config.density))
-            .ifBlank { root.config.density }
-        val density = DensityMode.parse(densityRaw, root.config.currentDpi)
-        val api = ask(text.text("prompt.api", root.config.androidApi)).ifBlank {
-            root.config.androidApi.toString()
-        }.toInt()
-        require(api in PlayGateway.MIN_ANDROID_API..PlayGateway.CURRENT_ANDROID_API)
-        val options = ResolvedDeliveryOptions(architecture, density, api)
+        val options = DeliveryOptions().resolve()
         val variants = discover(root, app.packageName, options, quiet = false)
         printVariants(variants, text)
         val selected = promptVariant(variants, text, input)
         status(text["status.languages"])
         val plan = runBlockingCli {
-            root.gateway.resolvePlan(app.packageName, architecture, density, selected)
+            root.gateway.resolvePlan(
+                app.packageName,
+                options.architecture,
+                options.density,
+                selected
+            )
         }
         printPlan(plan, text)
         if (!confirm(text, input)) return 5
