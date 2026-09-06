@@ -24,18 +24,12 @@ kotlin {
 
 android {
     namespace = "com.aurora.pure"
-    compileSdk {
-        version = release(37) {
-            minorApiLevel = 0
-        }
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.aurora.pure"
         minSdk = 29
-        targetSdk {
-            version = release(37)
-        }
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 
