@@ -1,41 +1,48 @@
-# Aurora Pure 개인정보 안내
+# Aurora Pure privacy notice
 
-최종 갱신: 2026-09-07
+[한국어](PRIVACY.ko.md)
 
-Aurora Pure는 자체 광고, 행동 분석, 사용 통계 수집, 자동 오류 보고 서버를 운영하지 않습니다. 개인 Google 계정 로그인도 제공하지 않습니다.
+Last updated: 2026-09-07
 
-## 네트워크로 전달되는 정보
+Aurora Pure operates no first-party advertising, behavioral analytics, usage telemetry, or automatic crash-reporting service. It does not offer personal Google account login.
 
-사용자가 검색 또는 다운로드를 명시적으로 실행하면 기능 수행에 필요한 범위에서 다음 정보가 Google Play 및 익명 연결 서비스에 전달될 수 있습니다.
+## Data sent over the network
 
-- 검색어 또는 사용자가 지정한 패키지명
-- Android 버전, 사용자가 선택한 64/32비트 CPU 제공 프로파일, 화면 밀도 등 APK 선택에 필요한 기기 구성
-- 앱이 선언한 모든 언어 split을 명시적으로 요청하기 위한 언어 코드 목록
-- 통신 과정에서 일반적으로 보이는 네트워크 주소와 요청 정보
-- 개인 계정이 아닌 익명 세션의 인증 정보
+When the user explicitly searches, scans variants, or starts a download, the following information may be sent as needed to Google Play and the external anonymous credential service:
 
-익명 사용은 “개인 Google 계정을 입력하지 않는다”는 뜻이며, Google Play와 아무 통신도 하지 않는다는 뜻은 아닙니다. 외부 서비스의 운영과 개인정보 처리는 해당 서비스 제공자의 정책에도 영향을 받습니다.
+- a search term or requested package name;
+- the selected Android API, CPU ABI, screen density, device-profile capabilities, and locale list used for Play delivery selection;
+- language codes needed to request every split declared by the delivered app;
+- the network address and ordinary protocol information visible to those services;
+- credentials for an anonymous session that is not the user's personal Google account.
 
-64 + 32비트 선택은 두 제공 프로파일을 각각 조회합니다. 모든 언어팩 기능은 사용자가 계획 확인 또는 다운로드를 실행했을 때만 작동하며, 키보드 입력 중 자동 요청이나 백그라운드 조회를 하지 않습니다.
+“Anonymous” means that the user does not enter a personal Google account. It does not mean that no communication with Google occurs. Operation and data processing by external services are also subject to their own policies.
 
-## 기기에서 처리되는 정보
+Aurora Pure probes only after an explicit action. It does not send each keystroke for remote autocomplete, scan the installed-app list, schedule background catalog requests, or upload diagnostics automatically.
 
-- 클립보드는 사용자가 **붙여넣기**를 누른 때에만 읽습니다.
-- 다른 앱이 공유한 Play 링크는 내용을 확인할 화면을 열 뿐 자동 다운로드하지 않습니다.
-- 설치된 앱 전체 목록을 조회하거나 업로드하지 않습니다.
-- 다운로드 작업, 설정과 완료 기록은 앱의 로컬 저장소에 보관합니다.
-- APK 임시 파일은 앱 전용 저장소에 두고 검증 후 사용자가 선택한 위치로 내보냅니다.
+## Data kept locally
 
-분할 APK ZIP의 `download-info.json`에는 패키지·버전·기기 선택 조건·파일 목록·해시·검증 결과·시간을 기록할 수 있습니다. 인증 토큰, 쿠키, 계정 이메일, 기기 고유 식별자, 서명된 다운로드 URL은 넣지 않습니다.
+- Android reads the clipboard only after the user chooses **Paste**.
+- A Play link shared to Android opens a reviewable app page and never starts a download automatically.
+- Temporary APKs remain in app-private or CLI cache storage until verified, exported, cancelled, or cleared.
+- Android settings and task records stay in Android app storage.
+- CLI settings follow the platform configuration directory; history follows the platform data directory.
+- CLI history includes package/version, output path and hash, size, completion time, and non-secret profile IDs.
 
-## 삭제와 공유
+Authentication tokens, anonymous account email addresses, cookies, signed delivery URLs, and internal session identifiers are not written to Android exports, `.apks` files, CLI configuration, or CLI history. CLI sessions exist in memory only.
 
-설정에서 임시 파일과 다운로드 기록을 지울 수 있습니다. **기록만 지우기**는 이미 내보낸 APK/ZIP을 삭제하지 않으며, **저장된 파일 삭제**는 사용자가 명시적으로 선택한 해당 파일만 삭제합니다.
+## Exported files
 
-공유는 완성되고 최종 검증된 파일에만 허용되며 Android의 `content://` URI와 임시 읽기 권한을 사용합니다.
+A standalone result is the original `.apk`. A split result is an `.apks` ZIP containing root-level APK files only. Aurora Pure does not embed `download-info.json`, checksum text, account data, tokens, signed URLs, or tracking identifiers in that archive.
 
-## 권한
+## Deletion and sharing
 
-Aurora Pure 자체 Manifest는 인터넷 연결과 네트워크 상태 확인만 요청합니다. 설치 권한, 전체 앱 조회, 광범위한 저장소 권한, 위치·연락처·카메라·마이크 권한은 사용하지 않습니다.
+Android distinguishes **Remove record** from **Delete saved file**. Removing a record leaves the exported file untouched. Sharing is enabled only for a completed result and uses a `content://` URI with temporary read access.
 
-이 문서와 실제 동작이 다르다고 판단되면 GitHub 저장소의 Issue를 통해 알려주세요. 진단 자료를 첨부할 때는 토큰, 쿠키, 서명된 URL 같은 비밀정보를 제거하세요.
+The CLI `history --clear` command removes only its local history file. It does not delete downloaded APK or `.apks` files. Cache and partial-download removal is an explicit filesystem action by the user.
+
+## Android permissions
+
+Aurora Pure's own final manifest requests only network access and network-state access. It does not request installation, all-app visibility, broad storage, location, contacts, camera, microphone, notifications, or foreground-service permissions.
+
+If this notice appears inconsistent with actual behavior, report it through the repository's GitHub Issues. Remove tokens, cookies, signed URLs, and other secrets before attaching diagnostic material.

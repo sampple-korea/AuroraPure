@@ -1,135 +1,156 @@
 # Aurora Pure
 
-[![Android CI](https://github.com/sampple-korea/AuroraPure/actions/workflows/android.yml/badge.svg)](https://github.com/sampple-korea/AuroraPure/actions/workflows/android.yml)
+[![Aurora Pure CI](https://github.com/sampple-korea/AuroraPure/actions/workflows/android.yml/badge.svg)](https://github.com/sampple-korea/AuroraPure/actions/workflows/android.yml)
 [![Latest release](https://img.shields.io/github/v/release/sampple-korea/AuroraPure?display_name=tag)](https://github.com/sampple-korea/AuroraPure/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-Google Play가 **현재 익명 세션과 현재 기기 조건에 제공하는 최신 원본 APK**를 저장하는 다운로드 전용 Android 앱입니다. Aurora Store 4.8.3을 기반으로 필요한 Google Play 연동만 남기고 설치·업데이트 관리 기능은 제거했습니다.
+**English** · [한국어](README.ko.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-> Aurora Pure는 Google 또는 Aurora OSS의 공식 앱이 아닌 독립적인 GPL 포크입니다.
+Aurora Pure is a download-only Android app and desktop CLI for saving APK files delivered by Google Play. It keeps the useful search, artwork, developer, and description views from Aurora Store while removing installation, installed-app management, and automatic updates.
 
-## 화면
+> Aurora Pure is an independent GPL fork. It is not an official Google or Aurora OSS distribution and is not affiliated with either project.
+
+## Current interface
 
 <p align="center">
-  <img src="docs/screenshots/search-ko.png" width="30%" alt="한국어 검색 화면">
-  <img src="docs/screenshots/plan-ko.png" width="30%" alt="한국어 모든 언어팩과 CPU 아키텍처 선택 화면">
-  <img src="docs/screenshots/completed-ko.png" width="30%" alt="한국어 다운로드 검증 완료 화면">
+  <img src="docs/screenshots/search-en.png" width="30%" alt="Aurora Pure English search screen">
+  <img src="docs/screenshots/variants-en.png" width="30%" alt="Selectable real ABI, Android, and screen-DPI variants">
+  <img src="docs/screenshots/cli-en.png" width="30%" alt="Aurora Pure interactive desktop CLI">
 </p>
 
-위 이미지는 1.1.0 릴리스 후보를 Android 16에서 직접 실행해 캡처한 검색, 모든 언어팩·CPU 아키텍처 선택, 다운로드 검증 완료 화면입니다.
+The Android screenshots and CLI capture above are generated from the 1.2.0 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
 
-## 다운로드
+## Download
 
-[GitHub Releases](https://github.com/sampple-korea/AuroraPure/releases/latest)에서 `AuroraPure-1.1.0.apk`와 `SHA256SUMS.txt`를 받으세요. Android 10(API 29) 이상을 지원합니다.
+Get release files from [GitHub Releases](https://github.com/sampple-korea/AuroraPure/releases/latest).
 
-Aurora Pure는 APK를 **다운로드만** 합니다. 내려받은 앱을 설치하려면 Android 파일 관리자 또는 분할 APK를 지원하는 별도 도구를 사용해야 합니다.
-
-## 핵심 기능
-
-- 앱 이름, 패키지명, Google Play 링크 검색
-- 앱 아이콘, 개발자, 설명과 제공 버전 표시
-- 개인 Google 계정 입력 없는 익명 세션
-- 다운로드 직전 제공 버전과 APK 파일 구성을 다시 조회
-- 앱의 `splits*.xml` 선언을 읽어 현재 제공 모듈의 **모든 언어 APK를 기본 포함**
-- **64 + 32비트(기본), 64비트, 32비트** CPU 제공 프로파일 선택
-- 단일 APK와 기기별 분할 APK, 확인 가능한 공유 라이브러리 APK 보존
-- 다운로드 일시정지·안전한 HTTP Range 이어받기·취소·재시도
-- APK 해시, 서명, 패키지명, 버전, 분할 구성 검증
-- `Download/AuroraPure` 또는 사용자가 선택한 폴더로 내보내기
-- 저장 완료 파일 공유, 기록만 삭제, 실제 파일 삭제를 구분
-- 한국어와 영어 전체 UI, 시스템/밝게/어둡게 테마
-
-### 의도적으로 없는 기능
-
-- 바로 설치, 시스템 설치기 호출, 루트·Shizuku 설치
-- 설치된 앱 목록 조회와 업데이트 목록
-- 자동 업데이트, 예약 다운로드, 부팅 후 자동 재개
-- 백그라운드 서비스, WorkManager, 다운로드 알림
-- 개인 Google 계정 로그인과 다중 계정
-- 추천·인기 순위·리뷰 작성·행동 분석·광고
-- 임의 URL 또는 APK 미러 다운로드
-
-평점·이미지·설명처럼 앱을 식별하는 정보는 검색·상세 화면에 남길 수 있지만, APK 저장에 필요하지 않은 별도 추천/관리 요청은 하지 않습니다.
-
-## 정확한 동작
-
-### 여기서 말하는 “최신”
-
-Aurora Pure의 최신 버전은 전 세계에서 가장 큰 버전 번호가 아니라, **다운로드를 시작하는 시점에 현재 익명 세션과 현재 기기 구성으로 Google Play가 제공한 버전**입니다. 배포 트랙을 응답에서 확인할 수 없으면 “정식/베타 확인 불가”로 표시합니다.
-
-상세 화면에서 본 결과와 다운로드 직전 결과가 다르면 새 계획을 보여주고 다시 확인받습니다. 다운로드가 시작된 뒤에는 계획을 고정해 서로 다른 버전의 APK가 섞이지 않게 합니다.
-
-### 저장 결과
-
-| Google Play 제공 구성 | 최종 파일 | 내용 |
+| Platform | Release file | Requirement |
 | --- | --- | --- |
-| APK 1개 | `.apk` | 받은 APK 바이트를 변경 없이 저장 |
-| APK 여러 개 | `.zip` | 원본 APK, `download-info.json`, `SHA256SUMS.txt` |
+| Android | `AuroraPure-1.2.0.apk` | Android 10 / API 29 or newer |
+| Linux and macOS CLI | `aurora-pure-cli-1.2.0.tar` or `.zip` | Java 21 or newer |
+| Windows CLI | `aurora-pure-cli-1.2.0.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
 
-ZIP은 설치 파일 형식 호환성을 약속하는 `.apks`가 아니라 원본 보관용 묶음입니다. 실행 후 받는 Play Asset Delivery 데이터, 계정 데이터, 게임 리소스의 완전한 백업은 범위에 포함하지 않습니다.
+Aurora Pure downloads files only. To install a downloaded app, use Android's file manager or a compatible split-APK installer separately.
 
-64 + 32비트를 선택하면 서로 다른 Google Play 제공 프로파일을 따로 조회합니다. 두 결과는 다음처럼 섞이지 않은 독립 세트로 저장됩니다.
+## What 1.2.0 can do
 
-```text
-com.example.app_v12345_arm64-v8a-armeabi-v7a_all-languages.zip
-├── variants/
-│   ├── 64bit/
-│   │   ├── base.apk
-│   │   └── config.*.apk
-│   └── 32bit/
-│       ├── base.apk
-│       └── config.*.apk
-├── download-info.json
-└── SHA256SUMS.txt
+- Search by app name, package name, Google Play URL, or a shared Play link.
+- Show the app icon, developer, package name, version metadata, and description.
+- Use an anonymous session without entering a personal Google account.
+- Discover **actual delivery combinations** before download instead of inventing variants from filenames.
+- List and select the version, ABI, minimum Android version, tested Android profile, and screen DPI returned by Google Play.
+- Offer a separate **Universal ABI mode** that probes ARM64, ARM32, x86_64, and x86, then includes every architecture for which Play actually returns APKs.
+- Probe the standard density buckets: 120, 160, 213, 240, 320, 480, and 640 dpi, or one selected DPI.
+- Read the delivered base APK's split declaration and request **every advertised language APK by default**.
+- Download up to four unique APKs in parallel, safely resume byte ranges, and avoid transferring identical content twice.
+- Verify Play-provided hashes, APK signatures, signer consistency, package names, versions, split identities, and the final saved file.
+- Save a single file as `.apk` and a split result as an APK-only `.apks` archive.
+- Provide the same search, discovery, selection, download, verification, history, and configuration workflow in an interactive PC CLI.
+
+## Actual variant discovery
+
+Aurora Pure probes the selected ABI and DPI scope starting with Android API 36. It reads the `minSdk` from the APK that Google Play actually returned, then probes the next meaningful older Android tier. Each `ABI × DPI` path is followed independently.
+
+Results are grouped only when their version and real APK artifact set are identical. Every selectable row therefore represents an observed combination and shows:
+
+- delivered version name and version code;
+- one or more compatible ABIs;
+- minimum Android version from the APK manifest;
+- observed DPI values;
+- Android API profiles that returned that exact set;
+- unique APK count and download size.
+
+The **Universal** row exists only in Universal ABI mode and combines the latest discovered sets without mixing version codes. All four ABI families are probed; a family that Play does not deliver for that app is omitted rather than fabricated, and the row shows exactly which families were returned. Other multi-variant scopes use a clearly separate **Combined** row. Aurora Pure does not rewrite or merge several split APKs into a fabricated monolithic APK.
+
+Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.2.0 promises the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
+
+## Output contract
+
+| Delivered result | Saved file | Contents |
+| --- | --- | --- |
+| One standalone APK | `.apk` | The APK bytes delivered by Google Play, unchanged |
+| Multiple APKs | `.apks` | Root-level `.apk` entries only; no JSON, checksum text, icon, or modified APK |
+
+Output names use the package name, version code, and useful ABI/DPI identity. They do **not** add an `_all-languages` suffix: all advertised language packs are already the normal default.
+
+Aurora Pure's `.apks` is a ZIP-compatible APK collection following the simple APK-only convention supported by tools such as SAI. It is not claimed to be a `bundletool build-apks` archive and does not contain an AAB-derived `toc.pb`. Universal and Combined archives can contain alternative base/configuration sets; an installer must choose one compatible set.
+
+Runtime-downloaded Play Asset Delivery content, account data, and a game's complete post-install resources are outside this APK-only scope. When Google Play reports additional non-APK data, Aurora Pure displays that limitation.
+
+## Desktop CLI
+
+Running the CLI without a subcommand starts a guided workflow with numbered search and actual-variant selection:
+
+```bash
+bin/aurora-pure
 ```
 
-두 폴더의 APK를 한 설치 세션에 섞어서는 안 됩니다. 같은 APK가 양쪽 프로파일에 제공되면 네트워크에서는 안전하게 재사용하되, ZIP에는 각 완전한 세트를 독립적으로 기록합니다.
+Every feature is also scriptable:
 
-### “모든 언어팩”의 정확한 범위
+```bash
+# Search and inspect public metadata
+bin/aurora-pure search "Google Authenticator"
+bin/aurora-pure info com.google.android.apps.authenticator2
 
-Aurora Pure는 base APK 안의 bundletool 메타데이터(`res/xml/splits*.xml`)를 읽고, **선택한 CPU 제공 프로파일에서 현재 전달되는 모듈이 선언한 모든 비어 있지 않은 언어 split**을 Google Play에 요청합니다. 언어가 base/master APK에 이미 포함됐다는 빈 split 선언도 포함 상태로 기록합니다. 하나라도 확보하지 못하면 불완전한 묶음을 완료로 내보내지 않습니다.
+# Display only combinations actually returned for all ABIs and standard DPI buckets
+bin/aurora-pure variants com.google.android.apps.authenticator2 \
+  --architecture universal --density all --android-api 36
 
-이는 해당 앱과 현재 제공 결과에 선언된 언어 전체를 뜻하며, 세상에 존재하는 모든 언어·아직 전달되지 않은 온디맨드 모듈·실행 후 받는 자산까지 생성하거나 보장한다는 뜻은 아닙니다.
+# Resolve every declared language split and download the Universal latest set
+bin/aurora-pure download com.google.android.apps.authenticator2 \
+  --architecture universal --density all --variant universal --yes
 
-### 전경에서만 다운로드
+# Re-open and cryptographically verify an existing result
+bin/aurora-pure verify ~/Downloads/AuroraPure/example.apks
 
-앱 화면이 완전히 보이지 않으면 진행 중인 네트워크 전송을 일시정지합니다. 앱으로 돌아와 **이어받기**를 누르면 저장된 작업 계획과 부분 파일을 확인한 후 계속합니다. 화면 회전이나 Aurora Pure 내부 화면 이동은 같은 작업을 중복 시작하지 않습니다.
+# Machine-readable output is available for automation
+bin/aurora-pure variants com.example.app --json
+bin/aurora-pure history --json
+```
 
-## 검증과 권한
+Available architecture scopes are `universal`, `both`, `64`, `32`, `arm64`, `arm32`, `x86_64`, and `x86`. Density accepts `current`, `all`, a standard name such as `xxhdpi`, or an exact numeric DPI. `config` stores non-secret defaults; `history` never stores tokens, cookies, or signed delivery URLs; `doctor` checks the runtime and local paths.
 
-완료 표시는 다음 순서가 모두 성공한 뒤에만 나타납니다.
+## Deliberately absent
 
-1. 계획의 모든 APK 다운로드
-2. 제공 해시(있는 경우), APK 서명, 패키지·버전·분할 구성 검증
-3. 최종 APK 또는 ZIP 기록
-4. 저장된 최종 결과를 다시 열어 파일 수와 SHA-256 재검증
+- direct install or system installer launch;
+- root, Shizuku, or unattended installation;
+- installed-app inventory and update lists;
+- automatic, scheduled, boot-time, or background downloads;
+- personal Google account login or account management;
+- recommendation feeds, rankings, review submission, analytics, or advertising;
+- arbitrary URL and APK-mirror downloads.
 
-릴리스 Manifest가 요청하는 일반 권한은 다음 두 개뿐입니다.
+On Android, leaving the entire app pauses active network transfers. Returning to the app and choosing **Resume** continues only after range-safety checks. The CLI keeps safe `.part` files when interrupted and validates the server's `Content-Range` before appending.
+
+## Permissions and privacy
+
+The final Android manifest requests only:
 
 - `android.permission.INTERNET`
 - `android.permission.ACCESS_NETWORK_STATE`
 
-설치 권한, 전체 앱 조회, 모든 파일 접근, 알림, 포그라운드 서비스 권한은 요청하지 않습니다. 자세한 데이터 처리는 [개인정보 안내](PRIVACY.md)를 확인하세요.
+It does not request package installation, all-app visibility, all-files access, notifications, or foreground-service permissions. Aurora Pure has no first-party ads, behavior analytics, or automatic crash upload. See [PRIVACY.md](PRIVACY.md) for the exact network and local-data boundary.
 
-## 빌드와 검증
+## Build and verify
 
-재현 가능한 개발 환경과 명령은 [BUILDING.md](BUILDING.md)에 있습니다. 모든 푸시에서 단위 테스트, Android Lint, R8 축소 릴리스 빌드와 다운로드 전용 소스 경계 검사를 수행합니다. 실제 Google Play APK 픽스처 통합 검증은 릴리스 전에 별도로 실행합니다. 1.1.0 릴리스 후보는 Android 16에서 Google OTP의 64/32비트 프로파일을 함께 조회해 선언 로케일 82개, 언어 APK 164개를 포함한 총 168개 APK를 내려받았고, ZIP 170개 엔트리와 모든 SHA-256을 다시 대조했습니다.
+JDK 21 and Android SDK 36 are required. The repository includes its Gradle Wrapper.
 
 ```bash
 ./gradlew --no-daemon --no-configuration-cache \
-  :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease
+  :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease \
+  :cli:test :cli:distZip :cli:distTar
 ```
 
-## 출처·라이선스
+Release integration tests can use a local, non-committed directory of real Play APKs to exercise APK-only `.apks` export and cryptographic re-verification. Full details are in [BUILDING.md](BUILDING.md).
 
-Aurora Pure는 [Aurora Store 4.8.3](https://gitlab.com/AuroraOSS/AuroraStore/-/tree/4.8.3)의 커밋 `e9be2c8293e02cc362d603df6b12b019fdb849f2`에서 파생됐습니다. 소스와 수정 사항은 GNU GPL v3 이상 조건으로 제공됩니다.
+## Source and license
 
-- [원본 및 상표 관련 고지](NOTICE.md)
-- [릴리스 노트](RELEASE_NOTES.md)
-- [GNU GPL v3 라이선스](LICENSE)
+Aurora Pure is derived from [Aurora Store 4.8.3](https://gitlab.com/AuroraOSS/AuroraStore/-/tree/4.8.3), upstream commit `e9be2c8293e02cc362d603df6b12b019fdb849f2`. Source and modifications are distributed under GNU GPL v3 or later.
 
-Google Play의 비공식 API와 외부 익명 인증 서비스 상태에 따라 검색이나 다운로드가 일시적으로 작동하지 않을 수 있습니다.
+- [Release notes](RELEASE_NOTES.md)
+- [Privacy notice](PRIVACY.md)
+- [Upstream and trademark notice](NOTICE.md)
+- [Build and signing guide](BUILDING.md)
+- [GNU GPL v3 license](LICENSE)
 
----
-
-**English:** Aurora Pure is a Korean-first, download-only Aurora Store fork. It fetches every language split advertised for the currently delivered modules, lets you choose 64-bit, 32-bit, or both delivery profiles, preserves each complete APK set in a ZIP, and never installs apps or manages updates.
+Google Play's unofficial API and the external anonymous credential service can change or become temporarily unavailable. “Latest” always means the version currently offered to the selected anonymous delivery profiles—not a promise of the globally highest version number.

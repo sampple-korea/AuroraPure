@@ -1,3 +1,54 @@
+# Aurora Pure 1.2.0
+
+This release makes Aurora Pure global, adds a full desktop CLI, and replaces synthetic variant labels with selectable Google Play delivery results.
+
+## Actual ABI, DPI, and Android combinations
+
+- Added Universal ABI mode that probes ARM64, ARM32, x86_64, and x86 and includes every architecture actually delivered for the selected app.
+- Added current, all-standard, and individual 120/160/213/240/320/480/640dpi scopes.
+- Probes Android API 36 first and follows each ABI × DPI path through real APK `minSdk` boundaries.
+- Groups only responses with the same version and actual Play artifact identities.
+- Preserves each observed `ABI × DPI × Android API` tuple in the selectable Android cards and human-readable CLI output.
+- Treats an app-unavailable architecture as an absent result instead of failing the whole Universal scan; authentication and rate-limit failures still remain visible.
+- Lists version, ABI, minimum Android, observed DPI, tested Android API profiles, APK count, and size as selectable rows.
+- Keeps the Universal-scope row distinct from a Combined row for other multi-variant scopes.
+- Never mixes different version codes or rewrites split APKs into a fabricated monolithic APK.
+
+## APK output and performance
+
+- Split downloads now produce `.apks` archives containing root-level APK files only.
+- Removed `download-info.json`, `SHA256SUMS.txt`, icons, and all other non-APK archive entries.
+- Removed `_all-languages` from output names because every advertised language split is the normal default.
+- Downloads up to four unique APKs concurrently with 256KiB buffers.
+- Reuses hash-identical artifacts across profiles and preserves safe HTTP Range resume behavior.
+- Reopens the final `.apk` or `.apks` and verifies every expected SHA-256 before completion.
+
+## Desktop CLI
+
+- Added native-feeling guided operation when run without a subcommand.
+- Added `search`, `info`, `variants`/`plan`, `download`, `verify`, `history`, `config`, and `doctor` commands.
+- Supports all architecture, density, Android-tier, all-language, verification, resume, and output features available in the Android product.
+- Supports structured JSON output for automation while keeping progress on stderr.
+- Stores no auth token, anonymous account, cookie, or signed download URL in configuration or history.
+- Ships portable Gradle application distributions for Linux, macOS, and Windows; Java 21 or newer is required.
+
+## Global interface
+
+- English is now the primary README and project language.
+- Added complete Simplified Chinese and Japanese Android/CLI translations.
+- Retained complete Korean support with dedicated Korean documentation.
+- Added separate English, Korean, Simplified Chinese, and Japanese READMEs.
+
+## Verification performed for this release
+
+- Android unit tests and Lint.
+- CLI unit tests for profile matrices, URL/package parsing, safe resume, configuration, translations, and archive policy.
+- Real Google Play metadata and anonymous delivery discovery showing distinct Android delivery tiers.
+- Real 168-APK fixture integration through content de-duplication, APK-only `.apks` export, APK signature/package/version validation, and final archive verification.
+- Final release manifest permission and source-boundary inspection.
+
+---
+
 # Aurora Pure 1.1.0
 
 모든 언어팩과 선택 가능한 64/32비트 제공 프로파일을 추가한 릴리스입니다.

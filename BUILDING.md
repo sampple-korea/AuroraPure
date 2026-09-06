@@ -1,30 +1,52 @@
-# Aurora Pure 빌드 안내
+# Building Aurora Pure
 
-## 요구 환경
+## Requirements
 
 - JDK 21
 - Android SDK Platform 36
 - Android SDK Build Tools 36.0.0
-- 인터넷 연결이 가능한 최초 의존성 동기화
+- network access for the first dependency resolution
 
-Gradle Wrapper가 포함되어 있으므로 별도 Gradle 설치는 필요하지 않습니다.
+The Gradle Wrapper is included; a separate Gradle installation is unnecessary.
 
-## 개발 빌드
+## Android development build
 
 ```bash
 ./gradlew :pure:assembleDebug
 ```
 
-결과는 `pure/build/outputs/apk/debug/pure-debug.apk`에 생성됩니다. 디버그 application ID는 릴리스와 함께 설치할 수 있는 `com.aurora.pure.debug`입니다.
+The result is `pure/build/outputs/apk/debug/pure-debug.apk`. Its application ID is `com.aurora.pure.debug`, so it can coexist with the signed release.
 
-## 전체 검증
+## Desktop CLI development build
+
+```bash
+./gradlew :cli:installDist
+cli/build/install/aurora-pure/bin/aurora-pure doctor
+```
+
+The CLI runs on Java 21 or newer. It uses the pinned Aurora GPlayApi AAR at build time and supplies only the minimal Android compatibility classes that library needs on a regular JVM.
+
+Distribution archives for Linux, macOS, and Windows launchers are produced with:
+
+```bash
+./gradlew :cli:distZip :cli:distTar
+```
+
+Results are written to `cli/build/distributions/`.
+
+## Full local verification
 
 ```bash
 ./gradlew --no-daemon --no-configuration-cache \
-  :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease
+  :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease \
+  :cli:test :cli:distZip :cli:distTar
 ```
 
-실제 분할 APK의 Manifest와 암호학적 서명을 검사하는 통합 테스트는 외부 APK를 저장소에 포함하지 않기 때문에 기본 실행에서 건너뜁니다. 릴리스 후보를 실제 APK 디렉터리로 추가 검증하려면 다음 환경 변수를 모두 지정합니다.
+The default test suite uses synthetic data for range-resume policy, device-profile matrices, configuration safety, translation completeness, archive rejection rules, and other deterministic behavior.
+
+### Real APK fixtures
+
+Third-party APK fixtures are never committed to this repository. To verify APK manifest parsing and signatures in Android tests:
 
 ```bash
 AURORA_PURE_APK_FIXTURE_DIR=/absolute/path/to/apk-set \
@@ -33,27 +55,26 @@ AURORA_PURE_APK_FIXTURE_VERSION=12345 \
   ./gradlew :pure:testDebugUnitTest
 ```
 
-base APK의 `res/xml/splits*.xml` 언어 선언 파서까지 실제 파일로 검사하려면 다음 변수를 함께 또는 별도로 지정합니다.
+To test the bundletool language declaration parser with a real base APK:
 
 ```bash
 AURORA_PURE_BASE_APK=/absolute/path/to/base.apk \
   ./gradlew :pure:testDebugUnitTest
 ```
 
-저장소에는 제3자 APK 픽스처를 커밋하지 않습니다. CI 기본 테스트는 ZIP Range 인덱스와 다운로드 정책을 합성 데이터로 검증하고, 실제 APK 통합 시험은 릴리스 담당자가 로컬에서 실행합니다.
+To run the desktop engine through content de-duplication, APK-only `.apks` export, per-APK signature/package/version checks, and final archive re-verification:
 
-## 릴리스 서명
-
-`pure/signing.properties` 파일을 로컬에 만들면 릴리스 빌드가 해당 키로 서명됩니다. 이 파일과 키 저장소는 Git에서 제외됩니다.
-
-```properties
-STORE_FILE=/absolute/path/to/release.jks
-STORE_PASSWORD=replace-me
-KEY_ALIAS=aurora-pure
-KEY_PASSWORD=replace-me
+```bash
+AURORA_PURE_CLI_FIXTURE_DIR=/absolute/path/to/apk-tree \
+  ./gradlew :cli:test \
+  --tests 'com.aurora.pure.cli.CliArtifactIntegrationTest'
 ```
 
-비밀번호를 속성 파일에 직접 쓰지 않으려면 권한을 제한한 별도 파일을 지정할 수 있습니다.
+The fixture tree may contain repeated APKs in profile directories. The test intentionally ensures identical content is emitted once and that the resulting `.apks` contains root-level `.apk` entries only.
+
+## Android release signing
+
+Create the local, Git-ignored file `pure/signing.properties`:
 
 ```properties
 STORE_FILE=/absolute/path/to/release.jks
@@ -62,21 +83,35 @@ KEY_ALIAS=aurora-pure
 KEY_PASSWORD_FILE=/absolute/path/to/key-password
 ```
 
+Direct `STORE_PASSWORD` and `KEY_PASSWORD` values are supported, but mode-restricted password files are preferred. Then run:
+
 ```bash
 ./gradlew :pure:assembleRelease
 ```
 
-키가 설정되면 결과는 `pure/build/outputs/apk/release/pure-release.apk`입니다. 키가 없으면 CI 검증용 `pure-release-unsigned.apk`가 생성됩니다.
+With signing configured, the result is `pure/build/outputs/apk/release/pure-release.apk`. Without it, CI produces `pure-release-unsigned.apk` for build verification only.
 
-서명 확인 예시:
+Verify the release certificate and APK signature:
 
 ```bash
 apksigner verify --verbose --print-certs \
   pure/build/outputs/apk/release/pure-release.apk
 ```
 
-공개 릴리스 업데이트에는 반드시 같은 영구 서명 키를 사용해야 합니다. 비밀번호, 키 저장소, `signing.properties`는 저장소나 CI 로그에 올리지 마세요.
+Public updates must use the same permanent signing key. Never commit a keystore, password file, `signing.properties`, token, cookie, anonymous account credential, or signed delivery URL.
 
-## 프로젝트 경계
+## Download-only boundary
 
-`:pure` 모듈은 설치 API, 설치 앱 전체 조회, WorkManager, 포그라운드 서비스, 루트와 Shizuku 의존성을 포함하지 않습니다. CI의 소스 경계 검사와 최종 병합 Manifest 검사를 함께 확인해야 합니다.
+The `:pure` and `:cli` modules must not install apps, enumerate all installed apps, schedule automatic updates, or invoke root/Shizuku installers. CI scans for installation and update-management APIs in addition to running tests and Android Lint. The final merged manifest must contain only the intended network permissions.
+
+## Release artifacts
+
+The release process publishes:
+
+- `AuroraPure-<version>.apk`
+- `aurora-pure-cli-<version>.zip`
+- `aurora-pure-cli-<version>.tar`
+- `SHA256SUMS.txt`
+- source archives generated by GitHub from the matching tag
+
+The APK and CLI archives must be built from the tagged clean worktree. Release-level checksums are separate from downloaded app `.apks` files; `.apks` output itself contains APK entries only.
