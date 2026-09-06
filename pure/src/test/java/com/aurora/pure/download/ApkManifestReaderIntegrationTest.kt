@@ -5,6 +5,7 @@
 
 package com.aurora.pure.download
 
+import com.android.apksig.ApkVerifier
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,10 +31,21 @@ class ApkManifestReaderIntegrationTest {
         assertTrue(expectedSplits.isNotEmpty())
 
         expectedSplits.forEach { (name, splitName) ->
-            val identity = ApkManifestReader.read(fixture.resolve(name))
+            val apk = fixture.resolve(name)
+            val identity = ApkManifestReader.read(apk)
             assertEquals(expectedPackage, identity.packageName)
             assertEquals(expectedVersion, identity.versionCode)
             assertEquals(splitName, identity.splitName)
+
+            val signature = ApkVerifier.Builder(apk)
+                .setMinCheckedPlatformVersion(23)
+                .setMaxCheckedPlatformVersion(36)
+                .build()
+                .verify()
+            assertTrue(
+                "$name signature errors=${signature.errors}; warnings=${signature.warnings}",
+                signature.isVerified
+            )
         }
     }
 

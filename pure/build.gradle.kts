@@ -10,6 +10,23 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.compose)
 }
 
+val signingPropertiesFile = file("signing.properties")
+val signingProperties = Properties().apply {
+    if (signingPropertiesFile.exists()) {
+        signingPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun Properties.signingSecret(name: String): String {
+    getProperty(name)?.takeIf(String::isNotBlank)?.let { return it }
+    val secretFile = getProperty("${name}_FILE")
+        ?.takeIf(String::isNotBlank)
+        ?: error("Missing $name or ${name}_FILE in signing.properties")
+    return rootProject.file(secretFile).readText().trim()
+        .takeIf(String::isNotBlank)
+        ?: error("Signing secret file for $name is empty")
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
@@ -38,15 +55,12 @@ android {
     }
 
     signingConfigs {
-        if (file("signing.properties").exists()) {
+        if (signingPropertiesFile.exists()) {
             create("release") {
-                val properties = Properties().apply {
-                    file("signing.properties").inputStream().use(::load)
-                }
-                keyAlias = properties.getProperty("KEY_ALIAS")
-                keyPassword = properties.getProperty("KEY_PASSWORD")
-                storeFile = file(properties.getProperty("STORE_FILE"))
-                storePassword = properties.getProperty("STORE_PASSWORD")
+                keyAlias = signingProperties.getProperty("KEY_ALIAS")
+                keyPassword = signingProperties.signingSecret("KEY_PASSWORD")
+                storeFile = rootProject.file(signingProperties.getProperty("STORE_FILE"))
+                storePassword = signingProperties.signingSecret("STORE_PASSWORD")
             }
         }
     }
@@ -63,7 +77,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (file("signing.properties").exists()) {
+            if (signingPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }

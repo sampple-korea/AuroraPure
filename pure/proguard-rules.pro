@@ -4,11 +4,11 @@
 # GPlayApi uses generated protobuf and Kotlin serialization metadata.
 -keep class com.aurora.gplayapi.** { *; }
 
-# Aurora Pure reads every split APK's signed binary AndroidManifest.xml before
-# export. Keep the parser implementation used by ApkManifestReader in release
-# builds; it is an internal apksig class and otherwise has no reflective roots.
--keep class com.android.apksig.internal.apk.AndroidBinXmlParser { *; }
--keep class com.android.apksig.internal.apk.AndroidBinXmlParser$* { *; }
+# APK verification is a security boundary. apksig passes the real-APK JVM
+# integration test before shrinking, while aggressive member optimization can
+# make v3 verification report a false failure on-device. Preserve the complete
+# implementation so release builds behave identically to the verified fixture.
+-keep class com.android.apksig.** { *; }
 
 -dontwarn org.bouncycastle.**
 -dontwarn org.conscrypt.**
