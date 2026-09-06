@@ -29,6 +29,7 @@ This release makes Aurora Pure global, adds a full desktop CLI, and replaces syn
 - Added `search`, `info`, `variants`/`plan`, `download`, `verify`, `history`, `config`, and `doctor` commands.
 - Supports all architecture, density, Android-tier, all-language, verification, resume, and output features available in the Android product.
 - Supports structured JSON output for automation while keeping progress on stderr.
+- Every subcommand exposes operand-free `--help`, including `download` and `verify`.
 - Stores no auth token, anonymous account, cookie, or signed download URL in configuration or history.
 - Ships portable Gradle application distributions for Linux, macOS, and Windows; Java 21 or newer is required.
 

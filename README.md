@@ -124,12 +124,12 @@ On Android, leaving the entire app pauses active network transfers. Returning to
 
 ## Permissions and privacy
 
-The final Android manifest requests only:
+The only Android platform permissions requested by the final app are:
 
 - `android.permission.INTERNET`
 - `android.permission.ACCESS_NETWORK_STATE`
 
-It does not request package installation, all-app visibility, all-files access, notifications, or foreground-service permissions. Aurora Pure has no first-party ads, behavior analytics, or automatic crash upload. See [PRIVACY.md](PRIVACY.md) for the exact network and local-data boundary.
+It does not request package installation, all-app visibility, all-files access, notifications, or foreground-service permissions. AndroidX also contributes an app-ID-scoped `signature` permission used to guard non-exported compatibility broadcasts; it grants no Android platform capability and only same-signer apps can hold it. Aurora Pure has no first-party ads, behavior analytics, or automatic crash upload. See [PRIVACY.md](PRIVACY.md) for the exact network and local-data boundary.
 
 ## Build and verify
 

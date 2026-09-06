@@ -102,7 +102,7 @@ Public updates must use the same permanent signing key. Never commit a keystore,
 
 ## Download-only boundary
 
-The `:pure` and `:cli` modules must not install apps, enumerate all installed apps, schedule automatic updates, or invoke root/Shizuku installers. CI scans for installation and update-management APIs in addition to running tests and Android Lint. The final merged manifest must contain only the intended network permissions.
+The `:pure` and `:cli` modules must not install apps, enumerate all installed apps, schedule automatic updates, or invoke root/Shizuku installers. CI scans for installation and update-management APIs in addition to running tests and Android Lint. The final merged manifest must contain only the intended network platform permissions plus AndroidX's app-local signature guard; no privileged platform permission is allowed.
 
 ## Release artifacts
 

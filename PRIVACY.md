@@ -43,6 +43,6 @@ The CLI `history --clear` command removes only its local history file. It does n
 
 ## Android permissions
 
-Aurora Pure's own final manifest requests only network access and network-state access. It does not request installation, all-app visibility, broad storage, location, contacts, camera, microphone, notifications, or foreground-service permissions.
+Aurora Pure requests only the Android platform permissions for network access and network-state access. It does not request installation, all-app visibility, broad storage, location, contacts, camera, microphone, notifications, or foreground-service permissions. AndroidX contributes an app-ID-scoped `signature` permission for guarding non-exported compatibility broadcasts; it grants no platform capability and can be held only by apps signed with the same certificate.
 
 If this notice appears inconsistent with actual behavior, report it through the repository's GitHub Issues. Remove tokens, cookies, signed URLs, and other secrets before attaching diagnostic material.

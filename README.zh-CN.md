@@ -117,7 +117,7 @@ Android 应用完全离开前台时会暂停网络传输。返回并选择“继
 
 ## 权限、构建与许可证
 
-最终 Android Manifest 只请求 `android.permission.INTERNET` 和 `android.permission.ACCESS_NETWORK_STATE`。它不请求安装、查看所有应用、访问所有文件、通知或前台服务权限，也没有自有广告、行为分析和自动崩溃上传。详情请阅读 [PRIVACY.md](PRIVACY.md)。
+最终应用只请求 `android.permission.INTERNET` 和 `android.permission.ACCESS_NETWORK_STATE` 两项 Android 平台权限。它不请求安装、查看所有应用、访问所有文件、通知或前台服务权限。AndroidX 还会合并一项以应用 ID 为作用域的 `signature` 权限，用于保护非导出的兼容广播；它不授予任何 Android 平台能力，且只有同签名应用可以持有。项目也没有自有广告、行为分析和自动崩溃上传。详情请阅读 [PRIVACY.md](PRIVACY.md)。
 
 使用 JDK 21 和 Android SDK 36 构建：
 

@@ -55,6 +55,27 @@ jobs:
           :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease
           :cli:test :cli:distZip :cli:distTar
 
+      - name: Inspect merged release permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_apk=$(find pure/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)
+          test -n "$release_apk"
+          permissions=$(aapt2 dump permissions "$release_apk")
+          printf '%s\n' "$permissions"
+          grep -q "android.permission.INTERNET" <<<"$permissions"
+          grep -q "android.permission.ACCESS_NETWORK_STATE" <<<"$permissions"
+          for forbidden in \
+            REQUEST_INSTALL_PACKAGES REQUEST_DELETE_PACKAGES QUERY_ALL_PACKAGES \
+            MANAGE_EXTERNAL_STORAGE REQUEST_IGNORE_BATTERY_OPTIMIZATIONS \
+            UPDATE_PACKAGES_WITHOUT_USER_ACTION ENFORCE_UPDATE_OWNERSHIP \
+            FOREGROUND_SERVICE POST_NOTIFICATIONS; do
+            if grep -q "$forbidden" <<<"$permissions"; then
+              echo "Forbidden merged permission: $forbidden"
+              exit 1
+            fi
+          done
+
       - name: Upload Android build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -99,7 +99,11 @@ data class ResolvedDeliveryOptions(
     val maxSdk: Int
 )
 
-@Command(name = "search", description = ["Search Google Play by app name."])
+@Command(
+    name = "search",
+    mixinStandardHelpOptions = true,
+    description = ["Search Google Play by app name."]
+)
 class SearchCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Parameters(arity = "1..*", paramLabel = "QUERY") lateinit var query: Array<String>
@@ -114,7 +118,11 @@ class SearchCommand : Callable<Int> {
     }
 }
 
-@Command(name = "info", description = ["Show app metadata without downloading."])
+@Command(
+    name = "info",
+    mixinStandardHelpOptions = true,
+    description = ["Show app metadata without downloading."]
+)
 class InfoCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Parameters(index = "0", paramLabel = "PACKAGE_OR_PLAY_URL") lateinit var input: String
@@ -135,6 +143,7 @@ class InfoCommand : Callable<Int> {
 @Command(
     name = "variants",
     aliases = ["plan"],
+    mixinStandardHelpOptions = true,
     description = ["Discover and list actual ABI × DPI × Android delivery combinations."]
 )
 class VariantsCommand : Callable<Int> {
@@ -155,7 +164,11 @@ class VariantsCommand : Callable<Int> {
     }
 }
 
-@Command(name = "download", description = ["Resolve all language splits, download, verify, and save APK files."])
+@Command(
+    name = "download",
+    mixinStandardHelpOptions = true,
+    description = ["Resolve all language splits, download, verify, and save APK files."]
+)
 class DownloadCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Parameters(index = "0", paramLabel = "PACKAGE_OR_PLAY_URL") lateinit var input: String
@@ -228,7 +241,11 @@ class DownloadCommand : Callable<Int> {
     }
 }
 
-@Command(name = "verify", description = ["Cryptographically verify an Aurora Pure .apk or APK-only .apks file."])
+@Command(
+    name = "verify",
+    mixinStandardHelpOptions = true,
+    description = ["Cryptographically verify an Aurora Pure .apk or APK-only .apks file."]
+)
 class VerifyCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Parameters(index = "0", paramLabel = "FILE") lateinit var input: Path
@@ -250,7 +267,11 @@ class VerifyCommand : Callable<Int> {
     }
 }
 
-@Command(name = "history", description = ["List or clear local download history. No tokens or URLs are stored."])
+@Command(
+    name = "history",
+    mixinStandardHelpOptions = true,
+    description = ["List or clear local download history. No tokens or URLs are stored."]
+)
 class HistoryCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Option(names = ["--clear"], description = ["Clear history without deleting downloaded files"])
@@ -280,7 +301,11 @@ class HistoryCommand : Callable<Int> {
     }
 }
 
-@Command(name = "config", description = ["Show or change persistent CLI defaults."])
+@Command(
+    name = "config",
+    mixinStandardHelpOptions = true,
+    description = ["Show or change persistent CLI defaults."]
+)
 class ConfigCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Option(names = ["--set"], paramLabel = "KEY=VALUE", description = ["Set a value; may be repeated"])
@@ -321,7 +346,11 @@ class ConfigCommand : Callable<Int> {
     }
 }
 
-@Command(name = "doctor", description = ["Check Java, protocol library, directories, and optionally network metadata access."])
+@Command(
+    name = "doctor",
+    mixinStandardHelpOptions = true,
+    description = ["Check Java, protocol library, directories, and optionally network metadata access."]
+)
 class DoctorCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Option(names = ["--online"], description = ["Also query public Google Play metadata"])

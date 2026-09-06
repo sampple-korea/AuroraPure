@@ -5,6 +5,8 @@
 
 package com.aurora.pure.cli
 
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.nio.file.Files
 import java.util.Properties
 import java.util.zip.ZipEntry
@@ -13,8 +15,25 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import picocli.CommandLine
 
 class CliPolicyTest {
+    @Test
+    fun `every subcommand shows help without required arguments`() {
+        listOf("search", "info", "variants", "download", "verify", "history", "config", "doctor")
+            .forEach { command ->
+                val output = StringWriter()
+                val errors = StringWriter()
+                val exitCode = CommandLine(RootCommand())
+                    .setOut(PrintWriter(output))
+                    .setErr(PrintWriter(errors))
+                    .execute(command, "--help")
+                assertEquals("$command help must exit successfully", 0, exitCode)
+                assertTrue(output.toString().contains("Usage: aurora-pure $command"))
+                assertTrue(errors.toString().isBlank())
+            }
+    }
+
     @Test
     fun `package input accepts package and official Play links only`() {
         assertEquals("com.example.app", parsePackageName("com.example.app"))

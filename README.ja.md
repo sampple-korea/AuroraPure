@@ -117,7 +117,7 @@ Android アプリ全体が見えなくなるとネットワーク転送を一時
 
 ## 権限、ビルド、ライセンス
 
-最終 Android Manifest が要求するのは `android.permission.INTERNET` と `android.permission.ACCESS_NETWORK_STATE` だけです。インストール、全アプリ可視性、全ファイルアクセス、通知、フォアグラウンドサービス権限は要求しません。独自広告、行動分析、自動クラッシュ送信もありません。詳細は [PRIVACY.md](PRIVACY.md) を参照してください。
+最終アプリが要求する Android プラットフォーム権限は `android.permission.INTERNET` と `android.permission.ACCESS_NETWORK_STATE` だけです。インストール、全アプリ可視性、全ファイルアクセス、通知、フォアグラウンドサービス権限は要求しません。AndroidX は非公開の互換ブロードキャストを保護するため、アプリ ID 範囲の `signature` 権限もマージしますが、Android プラットフォーム機能は付与せず、同じ署名のアプリだけが保持できます。独自広告、行動分析、自動クラッシュ送信もありません。詳細は [PRIVACY.md](PRIVACY.md) を参照してください。
 
 JDK 21 と Android SDK 36 でビルドします。
 
