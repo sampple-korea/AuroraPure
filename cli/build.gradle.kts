@@ -4,6 +4,8 @@
  */
 
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.bundling.Tar
+import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
@@ -67,4 +69,12 @@ tasks.processResources {
 
 tasks.test {
     useJUnit()
+}
+
+tasks.named<Zip>("distZip") {
+    archiveFileName.set("aurora-pure-cli-${project.version}.zip")
+}
+
+tasks.named<Tar>("distTar") {
+    archiveFileName.set("aurora-pure-cli-${project.version}.tar")
 }

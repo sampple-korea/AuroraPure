@@ -192,7 +192,7 @@ class ExportRepository(private val context: Context) {
     }
 
     private suspend fun writeArchive(outcome: DownloadOutcome, output: OutputStream) {
-        ZipOutputStream(output.buffered()).use { zip ->
+        ZipOutputStream(output.buffered(IO_BUFFER_BYTES)).use { zip ->
             zip.setLevel(Deflater.BEST_SPEED)
             archiveEntries(outcome).forEach { archive ->
                 currentCoroutineContext().ensureActive()
@@ -244,7 +244,7 @@ class ExportRepository(private val context: Context) {
     }
 
     private suspend fun copyCancellable(input: java.io.InputStream, output: OutputStream) {
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(IO_BUFFER_BYTES)
         while (true) {
             currentCoroutineContext().ensureActive()
             val count = input.read(buffer)
@@ -274,7 +274,7 @@ class ExportRepository(private val context: Context) {
         requireNotNull(context.contentResolver.openInputStream(uri)) {
             "Android could not reopen the saved file"
         }.use { input ->
-            ZipInputStream(input.buffered()).use { zip ->
+            ZipInputStream(input.buffered(IO_BUFFER_BYTES)).use { zip ->
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val entry = zip.nextEntry ?: break
@@ -303,7 +303,7 @@ class ExportRepository(private val context: Context) {
 
     private suspend fun digestCancellable(input: java.io.InputStream): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(IO_BUFFER_BYTES)
         while (true) {
             currentCoroutineContext().ensureActive()
             val count = input.read(buffer)
@@ -328,6 +328,7 @@ class ExportRepository(private val context: Context) {
         private const val TAG = "AuroraPure"
         private const val APK_MIME = "application/vnd.android.package-archive"
         private const val APKS_MIME = "application/zip"
+        private const val IO_BUFFER_BYTES = 256 * 1024
         private const val MINIMUM_FREE_BYTES = 16L * 1024L * 1024L
     }
 }

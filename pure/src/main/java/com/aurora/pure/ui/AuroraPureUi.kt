@@ -64,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -385,6 +386,13 @@ private fun VariantCard(
     selected: Boolean,
     onClick: () -> Unit
 ) {
+    val resources = LocalResources.current
+    val observedTargets = variant.profiles
+        .groupBy { it.variant to it.densityDpi }
+        .toSortedMap(compareBy<Pair<com.aurora.pure.data.ArchitectureVariant, Int>>(
+            { it.first.ordinal },
+            { it.second }
+        ))
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
@@ -457,6 +465,38 @@ private fun VariantCard(
                         variant.artifactCount,
                         formatBytes(variant.totalBytes)
                     )
+                )
+                Text(
+                    stringResource(R.string.actual_combinations),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                for ((target, profiles) in observedTargets) {
+                    val apiText = profiles
+                        .map { it.sdkVersion }
+                        .distinct()
+                        .sortedDescending()
+                        .joinToString(", ") { sdk ->
+                            resources.getString(
+                                R.string.actual_combination_api,
+                                DeviceProfile.androidRelease(sdk),
+                                sdk
+                            )
+                        }
+                    Text(
+                        stringResource(
+                            R.string.actual_combination_value,
+                            target.first.archiveDirectory,
+                            target.second,
+                            apiText
+                        ),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(
+                    stringResource(R.string.equivalent_combinations_note),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

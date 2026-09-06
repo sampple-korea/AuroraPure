@@ -160,7 +160,7 @@ class DownloadCommand : Callable<Int> {
     @ParentCommand lateinit var root: RootCommand
     @Parameters(index = "0", paramLabel = "PACKAGE_OR_PLAY_URL") lateinit var input: String
     @Mixin lateinit var delivery: DeliveryOptions
-    @Option(names = ["--variant"], description = ["universal, exact variant ID, or displayed 1-based number"])
+    @Option(names = ["--variant"], description = ["universal, combined, exact variant ID, or displayed 1-based number"])
     var variant: String? = null
     @Option(names = ["-o", "--output"], description = ["Output directory"])
     var output: String? = null
@@ -542,6 +542,14 @@ private fun printVariants(variants: List<DeliveryVariant>, messages: Messages) {
         println("${index + 1} | $label$version | $architecture | $android | $density | $tested | " +
             "${variant.artifactCount} | ${formatBytes(variant.totalBytes)}")
         println("    id=${variant.id}")
+        variant.profiles
+            .groupBy { it.abi.label to it.densityDpi }
+            .toSortedMap(compareBy<Pair<String, Int>>({ it.first }, { it.second }))
+            .forEach { (target, profiles) ->
+                val apis = profiles.map(DeliveryProfile::sdkVersion).distinct().sortedDescending()
+                println("    ${messages["label.actual_combination"]}: ${target.first} × ${target.second}dpi × " +
+                    apis.joinToString(", ") { "Android ${DeviceProfiles.androidRelease(it)} / API $it" })
+            }
     }
 }
 

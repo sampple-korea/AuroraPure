@@ -60,11 +60,10 @@ class PlayGateway(
         val snapshots = mutableListOf<Snapshot>()
         var completed = 0
         architecture.variants.forEach { abi ->
-            var sdk = maxSdk
-            val visited = mutableSetOf<Int>()
-            while (sdk >= MIN_ANDROID_API && visited.add(sdk)) {
-                val tier = mutableListOf<Snapshot>()
-                density.densities.forEach { dpi ->
+            density.densities.forEach { dpi ->
+                var sdk = maxSdk
+                val visited = mutableSetOf<Int>()
+                while (sdk >= MIN_ANDROID_API && visited.add(sdk)) {
                     val profile = DeliveryProfile(abi, dpi, sdk)
                     try {
                         val resolved = resolveProfile(
@@ -73,19 +72,18 @@ class PlayGateway(
                             mutableMapOf(),
                             resolveLanguages = false
                         )
-                        tier += Snapshot(profile, resolved)
+                        snapshots += Snapshot(profile, resolved)
+                        val nextSdk = resolved.minSdk - 1
+                        if (nextSdk < MIN_ANDROID_API || nextSdk >= sdk) break
+                        sdk = nextSdk
                     } catch (error: Exception) {
                         if (!isUnsupported(error)) throw error
+                        break
                     } finally {
                         completed += 1
                         onProbe(completed, profile)
                     }
                 }
-                if (tier.isEmpty()) break
-                snapshots += tier
-                val nextSdk = tier.minOf { it.resolution.minSdk } - 1
-                if (nextSdk < MIN_ANDROID_API || nextSdk >= sdk) break
-                sdk = nextSdk
             }
         }
         require(snapshots.isNotEmpty()) {

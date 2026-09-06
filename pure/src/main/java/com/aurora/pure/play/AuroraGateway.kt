@@ -122,33 +122,29 @@ class AuroraGateway(private val context: Context) {
         val initial = DeviceProfile.deliveryProfiles(architectureChoice, densityChoice)
         val snapshots = mutableListOf<ProfileSnapshot>()
 
-        initial.groupBy(DeliveryProfile::variant).forEach { (_, densityProfiles) ->
-            // Probe from the newest profile supported by this release, not only the host OS.
-            // The returned APK manifest then points to the next real compatibility tier.
+        initial.forEach { initialProfile ->
+            // Each ABI × DPI pair follows its own manifest minSdk boundaries. A low-density
+            // result must never cause a higher-density Android tier to be skipped.
             var sdkVersion = LATEST_SUPPORTED_ANDROID_API
             val visited = mutableSetOf<Int>()
             while (sdkVersion >= MIN_SUPPORTED_ANDROID_API && visited.add(sdkVersion)) {
-                val tierProfiles = densityProfiles.map { it.copy(sdkVersion = sdkVersion) }
-                val tier = mutableListOf<ProfileSnapshot>()
-                tierProfiles.forEach { profile ->
-                    try {
-                        val resolved = resolveVariant(
-                            packageName = packageName,
-                            profile = profile,
-                            languageCache = mutableMapOf(),
-                            resolveLanguages = false
-                        )
-                        tier += ProfileSnapshot(profile, resolved)
-                    } catch (exception: Exception) {
-                        if (!isUnsupportedProfile(exception)) throw exception
-                        Log.i(TAG, "No delivery for ${profile.id}")
-                    }
+                val profile = initialProfile.copy(sdkVersion = sdkVersion)
+                try {
+                    val resolved = resolveVariant(
+                        packageName = packageName,
+                        profile = profile,
+                        languageCache = mutableMapOf(),
+                        resolveLanguages = false
+                    )
+                    snapshots += ProfileSnapshot(profile, resolved)
+                    val nextSdk = resolved.minSdk - 1
+                    if (nextSdk < MIN_SUPPORTED_ANDROID_API || nextSdk >= sdkVersion) break
+                    sdkVersion = nextSdk
+                } catch (exception: Exception) {
+                    if (!isUnsupportedProfile(exception)) throw exception
+                    Log.i(TAG, "No delivery for ${profile.id}")
+                    break
                 }
-                if (tier.isEmpty()) break
-                snapshots += tier
-                val nextSdk = tier.minOf { it.resolution.minSdk } - 1
-                if (nextSdk < MIN_SUPPORTED_ANDROID_API || nextSdk >= sdkVersion) break
-                sdkVersion = nextSdk
             }
         }
 

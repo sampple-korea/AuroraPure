@@ -56,6 +56,10 @@
     <string name="minimum_android">最小 Android</string>
     <string name="android_api_value">Android %1$s 以上 · API %2$d</string>
     <string name="probed_android">確認済み環境</string>
+    <string name="actual_combinations">実際に確認した ABI × DPI × Android の組み合わせ</string>
+    <string name="actual_combination_value">%1$s · %2$d dpi · %3$s</string>
+    <string name="actual_combination_api">Android %1$s / API %2$d</string>
+    <string name="equivalent_combinations_note">同じ APK バイトが配信された実際の組み合わせだけを、1つの選択カードにまとめます。</string>
     <string name="languages">言語</string>
     <string name="language_files">言語ファイル</string>
     <string name="all_languages">利用可能なすべての言語パック</string>
