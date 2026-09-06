@@ -76,6 +76,13 @@ class DownloadCoordinator(
         val localArtifacts = plan.artifacts.map { artifact ->
             DownloadedArtifact(artifact, localFile(taskRoot, artifact))
         }
+        localArtifacts.forEach { item ->
+            if (!item.file.exists() && item.plan.type == "BASE") {
+                if (RemoteApkSplitReader.seedCachedBase(context, item.plan, item.file)) {
+                    partFile(item.file).delete()
+                }
+            }
+        }
         val presentBytes = localArtifacts.sumOf { item ->
             maxOf(item.file.takeIf(File::exists)?.length() ?: 0L, partFile(item.file).takeIf(File::exists)?.length() ?: 0L)
         }
@@ -85,6 +92,10 @@ class DownloadCoordinator(
         }
 
         val reusable = localArtifacts.associateWith(::isReusableCompletedFile)
+        val completedSources = mutableMapOf<String, DownloadedArtifact>()
+        reusable.filterValues { it }.keys.forEach { item ->
+            artifactIdentity(item.plan)?.let { completedSources.putIfAbsent(it, item) }
+        }
         var downloadedBytes = localArtifacts.sumOf { item ->
             when {
                 reusable[item] == true -> item.file.length()
@@ -100,25 +111,40 @@ class DownloadCoordinator(
                 checkControlState()
                 if (reusable[item] != true) {
                     if (item.file.exists()) item.file.delete()
-                    for (attempt in 0 until MAX_ATTEMPTS) {
-                        try {
-                            val diskBytes = localArtifacts.sumOf { local ->
-                                when {
-                                    local.file.exists() -> local.file.length()
-                                    partFile(local.file).exists() -> partFile(local.file).length()
-                                    else -> 0L
+                    val matching = artifactIdentity(item.plan)?.let(completedSources::get)
+                        ?.takeIf(::isReusableCompletedFile)
+                    if (matching != null) {
+                        partFile(item.file).delete()
+                        copyCompletedArtifact(matching.file, item.file)
+                        downloadedBytes = localArtifacts.sumOf { local ->
+                            when {
+                                local.file.exists() -> local.file.length()
+                                partFile(local.file).exists() -> partFile(local.file).length()
+                                else -> 0L
+                            }
+                        }
+                    } else {
+                        for (attempt in 0 until MAX_ATTEMPTS) {
+                            try {
+                                val diskBytes = localArtifacts.sumOf { local ->
+                                    when {
+                                        local.file.exists() -> local.file.length()
+                                        partFile(local.file).exists() -> partFile(local.file).length()
+                                        else -> 0L
+                                    }
                                 }
+                                downloadedBytes = downloadOne(item, diskBytes, completedFiles, onProgress)
+                                break
+                            } catch (exception: IOException) {
+                                checkControlState()
+                                if (!isRetryable(exception) || attempt + 1 >= MAX_ATTEMPTS) {
+                                    throw exception
+                                }
+                                delay(750L * (attempt + 1))
                             }
-                            downloadedBytes = downloadOne(item, diskBytes, completedFiles, onProgress)
-                            break
-                        } catch (exception: IOException) {
-                            checkControlState()
-                            if (!isRetryable(exception) || attempt + 1 >= MAX_ATTEMPTS) {
-                                throw exception
-                            }
-                            delay(750L * (attempt + 1))
                         }
                     }
+                    artifactIdentity(item.plan)?.let { completedSources.putIfAbsent(it, item) }
                     completedFiles += 1
                     onProgress(downloadedBytes, completedFiles)
                 }
@@ -325,6 +351,40 @@ class DownloadCoordinator(
             item.plan.sha1.isNotBlank() -> digest(item.file, "SHA-1")
                 .equals(item.plan.sha1, ignoreCase = true)
             else -> false
+        }
+    }
+
+    private fun artifactIdentity(artifact: ArtifactPlan): String? {
+        val referenceHash = when {
+            artifact.sha256.isNotBlank() -> "sha256:${artifact.sha256.lowercase()}"
+            artifact.sha1.isNotBlank() -> "sha1:${artifact.sha1.lowercase()}"
+            else -> return null
+        }
+        return listOf(
+            artifact.ownerPackage,
+            artifact.ownerVersionCode.toString(),
+            artifact.name,
+            artifact.type,
+            artifact.size.toString(),
+            referenceHash
+        ).joinToString("|")
+    }
+
+    private fun copyCompletedArtifact(source: File, destination: File) {
+        destination.parentFile?.mkdirs()
+        val partial = File(destination.absolutePath + ".copy")
+        partial.delete()
+        try {
+            source.inputStream().use { input ->
+                FileOutputStream(partial).use { output ->
+                    input.copyTo(output)
+                    output.fd.sync()
+                }
+            }
+            require(partial.renameTo(destination)) { "Could not finalize ${destination.name}" }
+        } catch (exception: Exception) {
+            partial.delete()
+            throw exception
         }
     }
 

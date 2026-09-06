@@ -8,6 +8,7 @@
 package com.aurora.pure.play
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import com.aurora.gplayapi.data.models.App
 import com.aurora.gplayapi.data.models.AuthData
@@ -23,6 +24,8 @@ import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.DeliveryProfile
 import com.aurora.pure.data.DownloadPlan
+import com.aurora.pure.download.LanguageSplit
+import com.aurora.pure.download.RemoteApkSplitReader
 import com.aurora.pure.network.DeliveryUrlPolicy
 import com.aurora.pure.network.PureHttpClient
 import java.util.Locale
@@ -30,6 +33,7 @@ import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,6 +41,7 @@ import org.json.JSONObject
 
 class AuroraGateway(private val context: Context) {
     val httpClient = PureHttpClient()
+    private val splitReader = RemoteApkSplitReader(context, httpClient)
 
     private val cachedAuth = ConcurrentHashMap<ArchitectureVariant, AuthData>()
     private val credentialsMutex = Mutex()
@@ -110,7 +115,10 @@ class AuroraGateway(private val context: Context) {
         architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH
     ): DownloadPlan = withContext(Dispatchers.IO) {
         val profiles = DeviceProfile.deliveryProfiles(architectureChoice)
-        val resolutions = profiles.map { profile -> resolveVariant(packageName, profile) }
+        val languageCache = mutableMapOf<LanguageCacheKey, LanguageResolution>()
+        val resolutions = profiles.map { profile ->
+            resolveVariant(packageName, profile, languageCache)
+        }
         val versionCodes = resolutions.map { it.app.versionCode }.distinct()
         require(versionCodes.size == 1) {
             "Google Play returned different versions across selected architectures"
@@ -132,7 +140,10 @@ class AuroraGateway(private val context: Context) {
             deviceDescription = DeviceProfile.description(profiles),
             architectureChoice = architectureChoice,
             deliveryProfiles = profiles,
-            requestedLocales = DeviceProfile.allPlayLocales,
+            requestedLocales = resolutions
+                .flatMap(ResolvedVariant::requestedLocales)
+                .distinct()
+                .sorted(),
             artifacts = artifacts,
             hasAdditionalData = resolutions.any(ResolvedVariant::hasAdditionalData)
         )
@@ -140,24 +151,31 @@ class AuroraGateway(private val context: Context) {
 
     private suspend fun resolveVariant(
         packageName: String,
-        profile: DeliveryProfile
+        profile: DeliveryProfile,
+        languageCache: MutableMap<LanguageCacheKey, LanguageResolution>
     ): ResolvedVariant {
         val auth = connect(profile)
         try {
-            return resolveVariantWithAuth(packageName, profile, auth)
+            return resolveVariantWithAuth(packageName, profile, auth, languageCache)
         } catch (exception: Exception) {
             if (httpClient.responseCode.value !in AUTH_FAILURE_CODES) throw exception
             Log.i(TAG, "Refreshing an expired ${profile.variant.name} anonymous session")
             cachedAuth.clear()
             invalidateCredentials()
-            return resolveVariantWithAuth(packageName, profile, connect(profile, force = true))
+            return resolveVariantWithAuth(
+                packageName,
+                profile,
+                connect(profile, force = true),
+                languageCache
+            )
         }
     }
 
-    private fun resolveVariantWithAuth(
+    private suspend fun resolveVariantWithAuth(
         packageName: String,
         profile: DeliveryProfile,
-        auth: AuthData
+        auth: AuthData,
+        languageCache: MutableMap<LanguageCacheKey, LanguageResolution>
     ): ResolvedVariant {
         Log.i(TAG, "Resolving ${profile.variant.name} delivery metadata for $packageName")
         val app = AppDetailsHelper(auth).using(httpClient).getAppByPackageName(packageName)
@@ -169,8 +187,8 @@ class AuroraGateway(private val context: Context) {
             purchaseHelper.purchase(app.packageName, app.versionCode, app.offerType)
         }
 
-        val allFiles = mutableListOf<Pair<App, PlayFile>>()
-        primaryFiles.forEach { allFiles += app to it }
+        val allFiles = mutableListOf<OwnedFile>()
+        primaryFiles.forEach { allFiles += OwnedFile(app, it) }
         app.dependencies.dependentLibraries.forEach { dependency ->
             val files = dependency.fileList.takeIf(::hasDownloadUrls) ?: run {
                 purchaseHelper.purchase(
@@ -179,43 +197,202 @@ class AuroraGateway(private val context: Context) {
                     dependency.offerType
                 )
             }
-            files.forEach { allFiles += dependency to it }
+            files.forEach { allFiles += OwnedFile(dependency, it) }
         }
 
-        val hasAdditionalData = allFiles.any { (_, file) ->
-            file.type == PlayFile.Type.OBB || file.type == PlayFile.Type.PATCH
+        val hasAdditionalData = allFiles.any { owned ->
+            owned.file.type == PlayFile.Type.OBB || owned.file.type == PlayFile.Type.PATCH
         }
-        val apkFiles = allFiles.filter { (_, file) ->
-            file.type == PlayFile.Type.BASE || file.type == PlayFile.Type.SPLIT
+        val requestedLocales = mutableSetOf<String>()
+        allFiles.map(OwnedFile::owner).distinctBy(App::packageName).forEach { owner ->
+            val ownerFiles = allFiles.filter { it.owner.packageName == owner.packageName }
+            val baseFile = ownerFiles.firstOrNull { it.file.type == PlayFile.Type.BASE }
+                ?: throw IllegalArgumentException("Google Play returned no base APK for a package")
+            val baseArtifact = baseFile.toArtifact(profile, app)
+            val deliveredNames = ownerFiles.map { it.file.name }.toSet()
+            val declarations = splitReader.read(baseArtifact).filter { declaration ->
+                declaration.moduleName.isBlank() || deliveredNames.any { fileName ->
+                    val splitName = fileName.removeSuffix(".apk")
+                    splitName == declaration.moduleName ||
+                        splitName.startsWith("${declaration.moduleName}.")
+                }
+            }
+            requestedLocales += declarations.flatMap(LanguageSplit::localeKeys)
+            val languageSplits = declarations.filter { it.splitName.isNotBlank() }
+            if (languageSplits.isEmpty()) return@forEach
+
+            val expectedByName = languageSplits.associateBy { "${it.splitName}.apk" }
+            allFiles.replaceAll { owned ->
+                val language = expectedByName[owned.file.name]
+                if (owned.owner.packageName == owner.packageName && language != null) {
+                    owned.copy(localeKeys = language.localeKeys)
+                } else {
+                    owned
+                }
+            }
+
+            val key = LanguageCacheKey.from(owner, baseFile.file)
+            val existingNames = allFiles.asSequence()
+                .filter { it.owner.packageName == owner.packageName }
+                .map { it.file.name }
+                .toSet()
+            val cached = key?.let(languageCache::get)
+                ?.takeIf { it.splitNames == expectedByName.keys }
+            val resolved = cached ?: resolveLanguageFiles(
+                owner = owner,
+                auth = auth,
+                purchaseHelper = purchaseHelper,
+                expected = languageSplits,
+                existingNames = existingNames
+            ).also { resolution ->
+                if (key != null) languageCache[key] = resolution
+            }
+            resolved.files.forEach { (name, file) ->
+                if (name !in existingNames) {
+                    allFiles += OwnedFile(
+                        owner = owner,
+                        file = file,
+                        localeKeys = expectedByName.getValue(name).localeKeys
+                    )
+                }
+            }
+        }
+
+        val apkFiles = allFiles.filter { owned ->
+            owned.file.type == PlayFile.Type.BASE || owned.file.type == PlayFile.Type.SPLIT
         }
         require(apkFiles.isNotEmpty()) { "Google Play returned no APK files for this device" }
 
-        val artifacts = apkFiles.map { (owner, file) ->
-            if (!DeliveryUrlPolicy.isAllowed(file.url)) {
-                Log.w(TAG, "Rejected delivery endpoint ${DeliveryUrlPolicy.safeEndpoint(file.url)}")
-                throw IllegalArgumentException("Rejected a non-Google or non-HTTPS delivery URL")
-            }
-            ArtifactPlan(
-                variant = profile.variant,
-                ownerPackage = owner.packageName,
-                ownerVersionCode = owner.versionCode,
-                name = file.name,
-                url = file.url,
-                size = file.size,
-                type = file.type.name,
-                sha1 = file.sha1,
-                sha256 = file.sha256,
-                isDependency = owner.packageName != app.packageName
-            )
-        }
+        val artifacts = apkFiles.map { it.toArtifact(profile, app) }
         require(artifacts.map { it.relativePath }.distinct().size == artifacts.size) {
             "Google Play returned conflicting APK file names"
         }
+        val resolvedLanguageNames = artifacts
+            .filter { it.localeKeys.isNotEmpty() }
+            .map(ArtifactPlan::name)
+            .toSet()
+        val expectedLanguageCount = allFiles.asSequence()
+            .filter { it.localeKeys.isNotEmpty() }
+            .map { it.file.name }
+            .distinct()
+            .count()
+        require(resolvedLanguageNames.size >= expectedLanguageCount) {
+            "Google Play did not return every declared language split"
+        }
+        Log.i(
+            TAG,
+            "Resolved ${profile.variant.name}: ${artifacts.size} APKs, " +
+                "${resolvedLanguageNames.size} language splits"
+        )
 
         return ResolvedVariant(
             app = app,
             artifacts = artifacts,
-            hasAdditionalData = hasAdditionalData
+            hasAdditionalData = hasAdditionalData,
+            requestedLocales = requestedLocales.toList()
+        )
+    }
+
+    private suspend fun resolveLanguageFiles(
+        owner: App,
+        auth: AuthData,
+        purchaseHelper: PurchaseHelper,
+        expected: List<LanguageSplit>,
+        existingNames: Set<String>
+    ): LanguageResolution {
+        val expectedByName = expected.associateBy { "${it.splitName}.apk" }
+        val resolved = mutableMapOf<String, PlayFile>()
+        var deliveryToken = ""
+
+        fun request(languages: String): List<PlayFile> {
+            var response = httpClient.withProtocolLanguages(languages) {
+                purchaseHelper.getDeliveryResponse(
+                    packageName = owner.packageName,
+                    updateVersionCode = owner.versionCode,
+                    offerType = owner.offerType,
+                    deliveryToken = deliveryToken
+                )
+            }
+            if (response.status == DELIVERY_NOT_PURCHASED && deliveryToken.isEmpty()) {
+                runCatching {
+                    purchaseHelper.acquire(owner.packageName, owner.versionCode, owner.offerType)
+                }
+                deliveryToken = purchaseHelper.getDeliveryToken(
+                    owner.packageName,
+                    owner.versionCode,
+                    owner.offerType,
+                    null
+                )
+                response = httpClient.withProtocolLanguages(languages) {
+                    purchaseHelper.getDeliveryResponse(
+                        packageName = owner.packageName,
+                        updateVersionCode = owner.versionCode,
+                        offerType = owner.offerType,
+                        deliveryToken = deliveryToken
+                    )
+                }
+            }
+            require(response.status == DELIVERY_OK) {
+                "Google Play could not resolve declared language splits"
+            }
+            return response.appDeliveryData.splitDeliveryDataList.map { split ->
+                PlayFile(
+                    name = "${split.name}.apk",
+                    url = split.downloadUrl,
+                    size = split.downloadSize,
+                    type = PlayFile.Type.SPLIT,
+                    sha1 = decodeHash(split.sha1),
+                    sha256 = decodeHash(split.sha256)
+                )
+            }
+        }
+
+        val allKeys = expected.flatMap(LanguageSplit::localeKeys).distinct()
+        if (allKeys.isNotEmpty()) {
+            request(allKeys.joinToString(",")).forEach { file ->
+                if (file.name in expectedByName && file.name !in existingNames) {
+                    resolved[file.name] = file
+                }
+            }
+        }
+
+        val missing = expectedByName.keys - existingNames - resolved.keys
+        missing.forEachIndexed { index, name ->
+            val declaration = expectedByName.getValue(name)
+            for (localeKey in declaration.localeKeys) {
+                if (index > 0) delay(LANGUAGE_REQUEST_INTERVAL_MS)
+                val match = request(localeKey).firstOrNull { it.name == name }
+                if (match != null) {
+                    resolved[name] = match
+                    break
+                }
+            }
+        }
+
+        val unresolved = expectedByName.keys - existingNames - resolved.keys
+        require(unresolved.isEmpty()) {
+            "Google Play did not return every declared language split"
+        }
+        return LanguageResolution(expectedByName.keys, resolved)
+    }
+
+    private fun OwnedFile.toArtifact(profile: DeliveryProfile, primary: App): ArtifactPlan {
+        if (!DeliveryUrlPolicy.isAllowed(file.url)) {
+            Log.w(TAG, "Rejected delivery endpoint ${DeliveryUrlPolicy.safeEndpoint(file.url)}")
+            throw IllegalArgumentException("Rejected a non-Google or non-HTTPS delivery URL")
+        }
+        return ArtifactPlan(
+            variant = profile.variant,
+            ownerPackage = owner.packageName,
+            ownerVersionCode = owner.versionCode,
+            name = file.name,
+            url = file.url,
+            size = file.size,
+            type = file.type.name,
+            sha1 = file.sha1,
+            sha256 = file.sha256,
+            isDependency = owner.packageName != primary.packageName,
+            localeKeys = localeKeys
         )
     }
 
@@ -279,6 +456,12 @@ class AuroraGateway(private val context: Context) {
     private fun hasDownloadUrls(files: List<PlayFile>): Boolean =
         files.isNotEmpty() && files.all { it.url.isNotBlank() }
 
+    private fun decodeHash(encoded: String): String {
+        if (encoded.isBlank()) return ""
+        return Base64.decode(encoded, Base64.URL_SAFE)
+            .joinToString("") { "%02x".format(it) }
+    }
+
     private fun currentLocale(): Locale =
         context.resources.configuration.locales[0] ?: Locale.getDefault()
 
@@ -294,8 +477,38 @@ class AuroraGateway(private val context: Context) {
     private data class ResolvedVariant(
         val app: App,
         val artifacts: List<ArtifactPlan>,
-        val hasAdditionalData: Boolean
+        val hasAdditionalData: Boolean,
+        val requestedLocales: List<String>
     )
+
+    private data class OwnedFile(
+        val owner: App,
+        val file: PlayFile,
+        val localeKeys: List<String> = emptyList()
+    )
+
+    private data class LanguageResolution(
+        val splitNames: Set<String>,
+        val files: Map<String, PlayFile>
+    )
+
+    private data class LanguageCacheKey(
+        val packageName: String,
+        val versionCode: Long,
+        val baseDigest: String,
+        val baseSize: Long
+    ) {
+        companion object {
+            fun from(owner: App, base: PlayFile): LanguageCacheKey? {
+                val digest = when {
+                    base.sha256.isNotBlank() -> "sha256:${base.sha256.lowercase()}"
+                    base.sha1.isNotBlank() -> "sha1:${base.sha1.lowercase()}"
+                    else -> return null
+                }
+                return LanguageCacheKey(owner.packageName, owner.versionCode, digest, base.size)
+            }
+        }
+    }
 
     private data class AnonymousCredentials(
         val email: String,
@@ -306,6 +519,9 @@ class AuroraGateway(private val context: Context) {
     companion object {
         private const val TAG = "AuroraPure"
         const val DISPENSER_URL = "https://auroraoss.com/api/auth"
+        private const val DELIVERY_OK = 1
+        private const val DELIVERY_NOT_PURCHASED = 3
+        private const val LANGUAGE_REQUEST_INTERVAL_MS = 100L
         private val AUTH_FAILURE_CODES = setOf(401, 403)
     }
 }

@@ -42,8 +42,9 @@
     <string name="architecture_32">32비트</string>
     <string name="architecture_explanation">64 + 32비트는 Google Play 제공 프로파일을 각각 조회하고, 완전한 APK 세트를 ZIP의 별도 폴더에 보존합니다.</string>
     <string name="languages">언어</string>
+    <string name="language_files">언어 파일</string>
     <string name="all_languages">제공되는 모든 언어팩</string>
-    <string name="all_languages_explanation">Aurora/GPlay 기기 프로파일의 모든 로케일을 기본 요청합니다. 앱이 Google Play에 실제로 게시한 언어 분할 APK를 모두 결과에 담습니다.</string>
+    <string name="all_languages_explanation">앱 자체의 split 선언을 읽고 Google Play에 게시된 모든 언어 APK를 요청합니다. 이 기능은 항상 켜져 있습니다.</string>
     <string name="delivery_profiles">제공 프로파일</string>
     <string name="combined_variants_notice">64비트와 32비트 제공 파일은 variants/64bit와 variants/32bit 아래의 독립된 완전한 세트입니다. 두 폴더의 파일을 하나의 설치 세트로 섞지 마세요.</string>
     <string name="storage">저장</string>
@@ -94,6 +95,7 @@
     <string name="version_changed_body">변경된 버전과 파일 구성을 확인한 뒤 다운로드하세요.</string>
     <string name="file_list">APK 파일</string>
     <string name="apk_count_size">APK %1$d개 · %2$s</string>
+    <string name="language_split_count">선언 로케일 %1$d개 · 언어 APK %2$d개</string>
     <string name="dependency_artifact">의존 패키지 · %1$s</string>
     <string name="continue_action">다운로드</string>
     <string name="back">뒤로</string>
@@ -134,6 +136,8 @@
     <string name="error_session_unavailable">Google Play 익명 세션을 준비하지 못했습니다.</string>
     <string name="error_wrong_package">Google Play가 요청과 다른 패키지를 반환했습니다.</string>
     <string name="error_no_apk">선택한 아키텍처 프로파일에 맞는 APK 파일을 받지 못했습니다.</string>
+    <string name="error_no_base_apk">패키지 중 하나의 기본 APK를 Google Play에서 받지 못했습니다.</string>
+    <string name="error_language_splits">앱이 선언한 언어 APK 일부를 Google Play에서 받지 못했습니다. 불완전한 묶음은 저장하지 않았습니다.</string>
     <string name="error_architecture_versions">Google Play가 64비트와 32비트 프로파일에 서로 다른 앱 버전을 제공했습니다. 버전이 섞이지 않도록 아키텍처 하나를 선택하세요.</string>
     <string name="error_delivery_security">다운로드 주소가 Google 제공 보안 정책을 통과하지 못했습니다.</string>
     <string name="error_conflicting_files">Google Play가 서로 충돌하는 APK 파일명을 반환했습니다.</string>
@@ -149,4 +153,5 @@
     <string name="error_finalize_output">저장 파일을 완성하지 못했습니다.</string>
     <string name="error_saved_verification">최종 저장 파일을 검증하지 못해 결과 파일을 삭제했습니다.</string>
     <string name="error_http">다운로드 요청에 실패했습니다(HTTP %1$s).</string>
+    <string name="error_play_http">Google Play 요청에 실패했습니다(HTTP %1$s).</string>
 </resources>

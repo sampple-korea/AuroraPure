@@ -115,6 +115,7 @@ dependencies {
     implementation(libs.coil.network)
     implementation(libs.squareup.okhttp)
     implementation(libs.auroraoss.gplayapi)
+    implementation("com.google.protobuf:protobuf-javalite:4.34.0")
     implementation("com.android.tools.build:apksig:9.2.0")
 
     testImplementation(libs.junit)

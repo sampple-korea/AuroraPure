@@ -11,6 +11,7 @@ import com.aurora.pure.R
 import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.DownloadRecord
 import com.aurora.pure.data.TaskStatus
+import com.aurora.pure.download.RemoteApkSplitReader
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -86,7 +87,8 @@ class RecordRepository(private val context: Context) {
 
     fun clearTemporaryFiles(): Boolean {
         val root = jobRoot()
-        return !root.exists() || root.deleteRecursively()
+        val jobsCleared = !root.exists() || root.deleteRecursively()
+        return RemoteApkSplitReader.clearCache(context) && jobsCleared
     }
 
     fun deleteTaskFiles(taskId: String): Boolean {

@@ -304,6 +304,7 @@ class ExportRepository(private val context: Context) {
                     put("packageName", file.ownerPackage)
                     put("versionCode", planned?.ownerVersionCode ?: JSONObject.NULL)
                     put("type", planned?.type ?: JSONObject.NULL)
+                    put("localeKeys", JSONArray(planned?.localeKeys.orEmpty()))
                     put("size", file.size)
                     put("sha256", file.sha256)
                     put("integrity", file.integrity.name.lowercase())

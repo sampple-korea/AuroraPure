@@ -28,6 +28,8 @@ class PureHttpClient : IHttpClient {
     private val _responseCode = MutableStateFlow(0)
     override val responseCode: StateFlow<Int> = _responseCode.asStateFlow()
 
+    private val protocolLanguages = ThreadLocal<String?>()
+
     private val protocolClient: OkHttpClient = baseClientBuilder()
         // Authenticated protocol headers must never follow a redirect to another host.
         .followRedirects(false)
@@ -66,10 +68,10 @@ class PureHttpClient : IHttpClient {
         url: String,
         headers: Map<String, String>,
         body: ByteArray
-    ): PlayResponse = process(
+    ): PlayResponse = processProtocol(
         Request.Builder()
             .url(url)
-            .headers(headers.toHeaders())
+            .headers(protocolHeaders(headers).toHeaders())
             .post(body.toRequestBody())
             .build()
     )
@@ -79,10 +81,10 @@ class PureHttpClient : IHttpClient {
         url: String,
         headers: Map<String, String>,
         params: Map<String, String>
-    ): PlayResponse = process(
+    ): PlayResponse = processProtocol(
         Request.Builder()
             .url(buildUrl(url, params))
-            .headers(headers.toHeaders())
+            .headers(protocolHeaders(headers).toHeaders())
             .post(ByteArray(0).toRequestBody())
             .build()
     )
@@ -96,10 +98,10 @@ class PureHttpClient : IHttpClient {
         url: String,
         headers: Map<String, String>,
         params: Map<String, String>
-    ): PlayResponse = process(
+    ): PlayResponse = processProtocol(
         Request.Builder()
             .url(buildUrl(url, params))
-            .headers(headers.toHeaders())
+            .headers(protocolHeaders(headers).toHeaders())
             .get()
             .build()
     )
@@ -109,10 +111,10 @@ class PureHttpClient : IHttpClient {
         url: String,
         headers: Map<String, String>,
         paramString: String
-    ): PlayResponse = process(
+    ): PlayResponse = processProtocol(
         Request.Builder()
             .url("$url$paramString")
-            .headers(headers.toHeaders())
+            .headers(protocolHeaders(headers).toHeaders())
             .get()
             .build()
     )
@@ -133,6 +135,22 @@ class PureHttpClient : IHttpClient {
             .build()
     )
 
+    /**
+     * Runs one synchronous GPlayApi request with an exact language header. The override is
+     * thread-local so an image/search request on another thread can never inherit authenticated
+     * delivery headers intended for locale split discovery.
+     */
+    fun <T> withProtocolLanguages(languages: String, block: () -> T): T {
+        require(languages.isNotBlank()) { "A protocol language override cannot be blank" }
+        val previous = protocolLanguages.get()
+        protocolLanguages.set(languages)
+        return try {
+            block()
+        } finally {
+            if (previous == null) protocolLanguages.remove() else protocolLanguages.set(previous)
+        }
+    }
+
     private fun process(request: Request): PlayResponse {
         _responseCode.value = 0
         val response = protocolClient.newCall(request).execute()
@@ -140,6 +158,12 @@ class PureHttpClient : IHttpClient {
             Log.w(TAG, "${request.method} ${request.url.host} returned HTTP ${response.code}")
         }
         return buildResponse(response)
+    }
+
+    private fun processProtocol(request: Request): PlayResponse {
+        val response = process(request)
+        if (!response.isSuccessful) throw ProtocolHttpException(response.code)
+        return response
     }
 
     private fun buildResponse(response: Response): PlayResponse = response.use {
@@ -156,6 +180,18 @@ class PureHttpClient : IHttpClient {
         url.toHttpUrl().newBuilder().apply {
             params.forEach { (name, value) -> addQueryParameter(name, value) }
         }.build()
+
+    private fun protocolHeaders(headers: Map<String, String>): Map<String, String> {
+        val languages = protocolLanguages.get()?.takeIf(String::isNotBlank) ?: return headers
+        if ("X-DFE-UserLanguages" !in headers) return headers
+        return headers + mapOf(
+            "Accept-Language" to languages.replace('_', '-'),
+            "X-DFE-UserLanguages" to languages
+        )
+    }
+
+    class ProtocolHttpException(val status: Int) :
+        IOException("Google Play request failed (HTTP $status)")
 
     companion object {
         private const val TAG = "AuroraPure"

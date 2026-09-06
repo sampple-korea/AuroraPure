@@ -611,6 +611,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 string(R.string.paid_unavailable)
             raw == "Google Play returned no APK files for this device" ->
                 string(R.string.error_no_apk)
+            raw == "Google Play returned no base APK for a package" ->
+                string(R.string.error_no_base_apk)
+            raw == "Google Play did not return every declared language split" ||
+                raw == "Google Play could not resolve declared language splits" ->
+                string(R.string.error_language_splits)
             raw == "Google Play returned different versions across selected architectures" ->
                 string(R.string.error_architecture_versions)
             raw == "Rejected a non-Google or non-HTTPS delivery URL" ||
@@ -648,6 +653,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             raw.startsWith("Download failed (HTTP ") -> {
                 val status = Regex("HTTP (\\d+)").find(raw)?.groupValues?.getOrNull(1) ?: "?"
                 getApplication<Application>().getString(R.string.error_http, status)
+            }
+            raw.startsWith("Google Play request failed (HTTP ") -> {
+                val status = Regex("HTTP (\\d+)").find(raw)?.groupValues?.getOrNull(1) ?: "?"
+                if (status == "429") string(R.string.error_rate_limited) else {
+                    getApplication<Application>().getString(R.string.error_play_http, status)
+                }
             }
             else -> string(R.string.message_operation_failed)
         }

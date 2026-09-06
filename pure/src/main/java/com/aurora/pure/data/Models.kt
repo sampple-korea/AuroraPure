@@ -105,7 +105,8 @@ data class ArtifactPlan(
     val type: String,
     val sha1: String,
     val sha256: String,
-    val isDependency: Boolean
+    val isDependency: Boolean,
+    val localeKeys: List<String> = emptyList()
 ) {
     val relativePath: String
         get() {
@@ -158,7 +159,8 @@ data class DownloadPlan(
                 append(it.relativePath).append('|')
                 append(it.size).append('|')
                 append(it.sha256).append('|')
-                append(it.sha1).append('\n')
+                append(it.sha1).append('|')
+                append(it.localeKeys.sorted().joinToString(",")).append('\n')
             }
         }
         return MessageDigest.getInstance("SHA-256")

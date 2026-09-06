@@ -663,6 +663,14 @@ private fun VersionConfirmation(
                     architectureText(confirmation.plan.architectureChoice)
                 )
                 DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
+                DetailRow(
+                    stringResource(R.string.language_files),
+                    stringResource(
+                        R.string.language_split_count,
+                        confirmation.plan.requestedLocales.size,
+                        confirmation.plan.artifacts.count { it.localeKeys.isNotEmpty() }
+                    )
+                )
                 DetailRow(stringResource(R.string.delivery_profiles), confirmation.plan.deviceDescription)
                 DetailRow(stringResource(R.string.checked_at), formatDate(confirmation.plan.checkedAt))
                 DetailRow(

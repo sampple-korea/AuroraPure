@@ -43,8 +43,9 @@
     <string name="architecture_32">32 bit</string>
     <string name="architecture_explanation">The combined option queries separate Google Play delivery profiles and preserves each complete APK set in its own ZIP folder.</string>
     <string name="languages">Languages</string>
+    <string name="language_files">Language files</string>
     <string name="all_languages">All available language packs</string>
-    <string name="all_languages_explanation">All locales in Aurora/GPlay device profiles are requested by default. The result contains every language split Google Play actually offers for the app.</string>
+    <string name="all_languages_explanation">Aurora Pure reads the app’s own split declaration and requests every language APK Google Play advertises for it. This is always enabled.</string>
     <string name="delivery_profiles">Delivery profiles</string>
     <string name="combined_variants_notice">The 64-bit and 32-bit deliveries are independent complete sets under variants/64bit and variants/32bit. Do not combine files from both folders into one install session.</string>
     <string name="storage">Storage</string>
@@ -96,6 +97,7 @@
     <string name="version_changed_body">Review the changed version and file set before downloading.</string>
     <string name="file_list">APK files</string>
     <string name="apk_count_size">%1$d APK files · %2$s</string>
+    <string name="language_split_count">%1$d declared locales · %2$d language APKs</string>
     <string name="dependency_artifact">Dependency · %1$s</string>
     <string name="continue_action">Download</string>
     <string name="back">Back</string>
@@ -136,6 +138,8 @@
     <string name="error_session_unavailable">Google Play did not create a usable anonymous session.</string>
     <string name="error_wrong_package">Google Play returned a different package.</string>
     <string name="error_no_apk">Google Play returned no APK files for the selected architecture profile.</string>
+    <string name="error_no_base_apk">Google Play returned no base APK for one of the packages.</string>
+    <string name="error_language_splits">Google Play did not return every language APK declared by the app. No incomplete set was saved.</string>
     <string name="error_architecture_versions">Google Play offered different app versions to the 64-bit and 32-bit profiles. Choose one architecture so versions are never mixed.</string>
     <string name="error_delivery_security">The download address failed the Google delivery security policy.</string>
     <string name="error_conflicting_files">Google Play returned conflicting APK file names.</string>
@@ -151,4 +155,5 @@
     <string name="error_finalize_output">The saved file could not be finalized.</string>
     <string name="error_saved_verification">The final saved file could not be verified and was removed.</string>
     <string name="error_http">The download request failed (HTTP %1$s).</string>
+    <string name="error_play_http">The Google Play request failed (HTTP %1$s).</string>
 </resources>
