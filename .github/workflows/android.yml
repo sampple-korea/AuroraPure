@@ -61,7 +61,9 @@ jobs:
           set -euo pipefail
           release_apk=$(find pure/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)
           test -n "$release_apk"
-          permissions=$(aapt2 dump permissions "$release_apk")
+          aapt2_path=$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -type f -name aapt2 -print | sort -V | tail -n 1)
+          test -x "$aapt2_path"
+          permissions=$("$aapt2_path" dump permissions "$release_apk")
           printf '%s\n' "$permissions"
           grep -q "android.permission.INTERNET" <<<"$permissions"
           grep -q "android.permission.ACCESS_NETWORK_STATE" <<<"$permissions"
