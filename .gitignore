@@ -35,6 +35,7 @@ proguard/
 *.iml
 .DS_Store
 /captures
+/artifacts/
 /.idea
 /.gradle*
 gradle-app.setting
@@ -50,6 +51,7 @@ app/preload/*
 #Exclude signing configurations & keystore
 signing.properties
 *.keystore
+*.jks
 
 
 .kotlin/*

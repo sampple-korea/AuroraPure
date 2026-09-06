@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Aurora Pure contributors -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="app_name">Aurora Pure</string>
+    <string name="tagline">Google Play APK downloader</string>
+    <string name="search_hint">App name, package name, or Play link</string>
+    <string name="search">Search</string>
+    <string name="paste">Paste</string>
+    <string name="downloads">Downloads</string>
+    <string name="settings">Settings</string>
+    <string name="source_notice">Saves app files delivered by Google Play. It does not install apps or update them automatically.</string>
+    <string name="latest_files">Get latest files</string>
+    <string name="google_play_delivery">Google Play delivery</string>
+    <string name="current_device">Current device</string>
+    <string name="version">Version</string>
+    <string name="version_code">Version code</string>
+    <string name="file_layout">File layout</string>
+    <string name="save_format">Save format</string>
+    <string name="checked_at">Checked</string>
+    <string name="single_apk">Single APK</string>
+    <string name="split_zip">Original APK set ZIP</string>
+    <string name="checked_before_download">Checked immediately before download</string>
+    <string name="paid_unavailable">Paid app · not supported by Aurora Pure</string>
+    <string name="connection">Anonymous connection</string>
+    <string name="reconnect">Reconnect</string>
+    <string name="storage">Storage</string>
+    <string name="default_folder">Download/AuroraPure</string>
+    <string name="choose_folder">Choose another folder</string>
+    <string name="use_default_folder">Use default folder</string>
+    <string name="theme">Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="keep_screen_on">Keep screen on while downloading</string>
+    <string name="local_data">Local data</string>
+    <string name="clear_temporary">Clear temporary files</string>
+    <string name="clear_history">Clear download history</string>
+    <string name="about">Privacy, license, and source</string>
+    <string name="privacy_text">Aurora Pure has no advertising, analytics, or automatic crash reporting. Search terms, the current device configuration, and network address are sent as needed to Google Play and the anonymous token service. Authentication tokens and signed download URLs are never written to exported metadata.</string>
+    <string name="license_text">Aurora Pure is an independent GPL-3.0-or-later fork based on Aurora Store. It is not an official distribution of Google or Aurora OSS and has no affiliation with them. There is no warranty.</string>
+    <string name="empty_downloads">No download records yet.</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="cancel">Cancel</string>
+    <string name="share">Share</string>
+    <string name="remove_record">Remove record</string>
+    <string name="delete_file">Delete saved file</string>
+    <string name="verification">Verification</string>
+    <string name="additional_data_warning">This app may need data outside its APK files. Aurora Pure saves APK files only.</string>
+    <string name="split_notice">This is an archive of original APK files. Installation may require a separate split-APK tool.</string>
+    <string name="version_changed_title">A newer delivered version is available</string>
+    <string name="version_changed_body">Review the new version and file size before downloading.</string>
+    <string name="continue_action">Continue</string>
+    <string name="back">Back</string>
+    <string name="retry">Retry</string>
+    <string name="details">App information</string>
+    <string name="no_results">No matching apps were found.</string>
+    <string name="file_missing">Saved file could not be found.</string>
+</resources>

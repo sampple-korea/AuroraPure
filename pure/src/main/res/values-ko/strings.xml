@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Aurora Pure contributors -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="tagline">Google Play APK 다운로더</string>
+    <string name="search_hint">앱 이름, 패키지명 또는 Play 링크</string>
+    <string name="search">검색</string>
+    <string name="paste">붙여넣기</string>
+    <string name="downloads">다운로드</string>
+    <string name="settings">설정</string>
+    <string name="source_notice">Google Play에서 제공하는 앱 파일을 저장합니다. 설치하거나 자동으로 업데이트하지 않습니다.</string>
+    <string name="latest_files">최신 파일 받기</string>
+    <string name="google_play_delivery">Google Play 제공</string>
+    <string name="current_device">현재 기기</string>
+    <string name="version">버전</string>
+    <string name="version_code">버전 코드</string>
+    <string name="file_layout">파일 구성</string>
+    <string name="save_format">저장 형식</string>
+    <string name="checked_at">확인 시점</string>
+    <string name="single_apk">단일 APK</string>
+    <string name="split_zip">원본 APK 묶음 ZIP</string>
+    <string name="checked_before_download">다운로드 직전에 다시 확인</string>
+    <string name="paid_unavailable">유료 앱 · Aurora Pure 다운로드 대상 아님</string>
+    <string name="connection">익명 연결</string>
+    <string name="reconnect">다시 연결</string>
+    <string name="storage">저장</string>
+    <string name="default_folder">Download/AuroraPure</string>
+    <string name="choose_folder">다른 위치 선택</string>
+    <string name="use_default_folder">기본 위치 사용</string>
+    <string name="theme">화면</string>
+    <string name="theme_system">시스템</string>
+    <string name="theme_light">밝게</string>
+    <string name="theme_dark">어둡게</string>
+    <string name="keep_screen_on">다운로드 중 화면 유지</string>
+    <string name="local_data">로컬 데이터</string>
+    <string name="clear_temporary">임시 파일 정리</string>
+    <string name="clear_history">다운로드 기록 삭제</string>
+    <string name="about">개인정보·라이선스·소스</string>
+    <string name="privacy_text">Aurora Pure에는 광고, 행동 분석, 자동 오류 보고가 없습니다. 검색어, 현재 기기 구성과 네트워크 주소는 필요한 범위에서 Google Play와 익명 연결 서비스에 전달됩니다. 인증 토큰과 서명된 다운로드 URL은 내보낸 메타데이터에 기록하지 않습니다.</string>
+    <string name="license_text">Aurora Pure는 Aurora Store를 기반으로 한 GPL-3.0-or-later 독립 포크입니다. Google 또는 Aurora OSS의 공식 배포판이 아니며 어떠한 보증도 제공하지 않습니다.</string>
+    <string name="empty_downloads">다운로드 기록이 없습니다.</string>
+    <string name="pause">일시정지</string>
+    <string name="resume">이어받기</string>
+    <string name="cancel">취소</string>
+    <string name="share">공유</string>
+    <string name="remove_record">기록만 지우기</string>
+    <string name="delete_file">저장된 파일 삭제</string>
+    <string name="verification">검증</string>
+    <string name="additional_data_warning">이 앱은 APK 외에 추가 데이터가 필요할 수 있습니다. Aurora Pure는 APK 파일만 저장합니다.</string>
+    <string name="split_notice">원본 APK 묶음입니다. 설치에는 분할 APK를 지원하는 별도 도구가 필요할 수 있습니다.</string>
+    <string name="version_changed_title">더 새로운 제공 버전이 확인되었습니다</string>
+    <string name="version_changed_body">변경된 버전과 파일 크기를 확인한 뒤 다운로드하세요.</string>
+    <string name="continue_action">계속</string>
+    <string name="back">뒤로</string>
+    <string name="retry">재시도</string>
+    <string name="details">앱 정보</string>
+    <string name="no_results">일치하는 앱을 찾지 못했습니다.</string>
+    <string name="file_missing">저장된 파일을 찾을 수 없습니다.</string>
+</resources>

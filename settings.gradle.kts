@@ -16,20 +16,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // libsu is only available via jitpack
-        maven("https://jitpack.io/") {
-            content {
-                includeModule("com.github.topjohnwu.libsu", "core")
-            }
-        }
-        // Only included in huawei variants
-        maven("https://developer.huawei.com/repo/") {
-            content {
-                includeGroup("com.huawei.hms")
-                includeGroup("com.huawei.android.hms")
-            }
-        }
     }
 }
-include(":app")
-rootProject.name = "AuroraStore4"
+include(":pure")
+rootProject.name = "AuroraPure"
