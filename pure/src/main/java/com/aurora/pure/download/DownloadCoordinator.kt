@@ -20,9 +20,11 @@ import com.aurora.pure.data.DownloadedArtifact
 import com.aurora.pure.data.FileVerification
 import com.aurora.pure.data.VerificationReport
 import com.aurora.pure.data.VerificationState
+import com.aurora.pure.network.DeliveryUrlPolicy
 import com.aurora.pure.network.PureHttpClient
 import com.aurora.pure.storage.RecordRepository
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
@@ -74,6 +76,13 @@ class DownloadCoordinator(
         val localArtifacts = plan.artifacts.map { artifact ->
             DownloadedArtifact(artifact, localFile(taskRoot, artifact))
         }
+        val presentBytes = localArtifacts.sumOf { item ->
+            maxOf(item.file.takeIf(File::exists)?.length() ?: 0L, partFile(item.file).takeIf(File::exists)?.length() ?: 0L)
+        }
+        val remainingBytes = (plan.totalBytes - presentBytes).coerceAtLeast(0)
+        require(taskRoot.usableSpace >= remainingBytes + MINIMUM_FREE_BYTES) {
+            "Not enough temporary storage for this download"
+        }
 
         val reusable = localArtifacts.associateWith(::isReusableCompletedFile)
         var downloadedBytes = localArtifacts.sumOf { item ->
@@ -91,7 +100,6 @@ class DownloadCoordinator(
                 checkControlState()
                 if (reusable[item] != true) {
                     if (item.file.exists()) item.file.delete()
-                    var failure: IOException? = null
                     for (attempt in 0 until MAX_ATTEMPTS) {
                         try {
                             val diskBytes = localArtifacts.sumOf { local ->
@@ -102,15 +110,15 @@ class DownloadCoordinator(
                                 }
                             }
                             downloadedBytes = downloadOne(item, diskBytes, completedFiles, onProgress)
-                            failure = null
                             break
                         } catch (exception: IOException) {
                             checkControlState()
-                            failure = exception
-                            if (attempt + 1 < MAX_ATTEMPTS) delay(750L * (attempt + 1))
+                            if (!isRetryable(exception) || attempt + 1 >= MAX_ATTEMPTS) {
+                                throw exception
+                            }
+                            delay(750L * (attempt + 1))
                         }
                     }
-                    failure?.let { throw it }
                     completedFiles += 1
                     onProgress(downloadedBytes, completedFiles)
                 }
@@ -134,6 +142,9 @@ class DownloadCoordinator(
         onProgress: (Long, Int) -> Unit
     ): Long {
         item.file.parentFile?.mkdirs()
+        require(DeliveryUrlPolicy.isAllowed(item.plan.url)) {
+            "Download URL is outside the approved Google delivery hosts"
+        }
         val part = partFile(item.file)
         var offset = part.takeIf(File::exists)?.length() ?: 0L
         if (item.plan.size > 0 && offset > item.plan.size) {
@@ -144,7 +155,7 @@ class DownloadCoordinator(
         val request = Request.Builder().url(item.plan.url).apply {
             if (offset > 0) header("Range", "bytes=$offset-")
         }.build()
-        val call = httpClient.client.newCall(request)
+        val call = httpClient.downloadClient.newCall(request)
         activeCall = call
         val response = call.execute()
 
@@ -152,15 +163,18 @@ class DownloadCoordinator(
             checkControlState()
             var append = false
             if (offset > 0) {
-                append = it.code == 206 && contentRangeStartsAt(it.header("Content-Range"), offset)
-                if (!append && it.code == 200) {
-                    offset = 0L
-                } else if (!append) {
-                    throw IOException("Server rejected a safe resume (HTTP ${it.code})")
+                when (ResumePolicy.decide(offset, it.code, it.header("Content-Range"))) {
+                    ResumePolicy.Decision.APPEND -> append = true
+                    ResumePolicy.Decision.RESTART -> offset = 0L
+                    ResumePolicy.Decision.REJECT -> {
+                        throw PermanentDownloadException(
+                            "Server rejected a safe resume (HTTP ${it.code})"
+                        )
+                    }
                 }
             }
             if (offset == 0L && !it.isSuccessful) {
-                throw IOException("Download failed (HTTP ${it.code})")
+                throw HttpDownloadException(it.code)
             }
 
             var total = alreadyDownloaded - part.length() + offset
@@ -184,7 +198,9 @@ class DownloadCoordinator(
                     "Size mismatch for ${item.plan.name}: ${part.length()} of ${item.plan.size} bytes"
                 )
             }
-            if (!part.renameTo(item.file)) throw IOException("Could not finalize ${item.plan.name}")
+            if (!part.renameTo(item.file)) {
+                throw PermanentDownloadException("Could not finalize ${item.plan.name}")
+            }
             return total
         }
     }
@@ -201,6 +217,7 @@ class DownloadCoordinator(
         val limitations = mutableSetOf<String>()
 
         artifacts.forEach { item ->
+            checkControlState()
             val localSha256 = digest(item.file, "SHA-256")
             val hashState = when {
                 item.plan.sha256.isNotBlank() -> if (
@@ -290,6 +307,7 @@ class DownloadCoordinator(
         }
 
         if (plan.hasAdditionalData) limitations += "The delivery references non-APK data"
+        checkControlState()
         return VerificationReport(fileReports, integrity, signatures, packages, limitations.toList())
     }
 
@@ -318,10 +336,18 @@ class DownloadCoordinator(
 
     private fun partFile(file: File) = File(file.absolutePath + ".part")
 
-    private fun contentRangeStartsAt(header: String?, expected: Long): Boolean {
-        val start = Regex("^bytes\\s+(\\d+)-", RegexOption.IGNORE_CASE)
-            .find(header.orEmpty())?.groupValues?.getOrNull(1)?.toLongOrNull()
-        return start == expected
+    private fun isRetryable(exception: IOException): Boolean = when (exception) {
+        is PermanentDownloadException -> false
+        is HttpDownloadException -> exception.status in RETRYABLE_HTTP_CODES
+        is FileNotFoundException -> false
+        else -> generateSequence<Throwable>(exception) { it.cause }
+            .none { cause ->
+                cause is android.system.ErrnoException && cause.errno in setOf(
+                    android.system.OsConstants.ENOSPC,
+                    android.system.OsConstants.EACCES,
+                    android.system.OsConstants.EROFS
+                )
+            }
     }
 
     private fun digest(file: File, algorithm: String): String {
@@ -349,9 +375,14 @@ class DownloadCoordinator(
 
     class PauseRequestedException : IOException("Download paused")
     class CancelRequestedException : IOException("Download cancelled")
+    private class PermanentDownloadException(message: String) : IOException(message)
+    private class HttpDownloadException(val status: Int) :
+        IOException("Download failed (HTTP $status)")
 
     companion object {
         private const val TAG = "AuroraPure"
         private const val MAX_ATTEMPTS = 3
+        private const val MINIMUM_FREE_BYTES = 16L * 1024L * 1024L
+        private val RETRYABLE_HTTP_CODES = setOf(408, 500, 502, 503, 504)
     }
 }

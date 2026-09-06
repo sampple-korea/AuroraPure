@@ -20,8 +20,8 @@ import com.aurora.gplayapi.helpers.web.WebSearchHelper
 import com.aurora.pure.data.AppSummary
 import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.DownloadPlan
+import com.aurora.pure.network.DeliveryUrlPolicy
 import com.aurora.pure.network.PureHttpClient
-import java.net.URI
 import java.util.Locale
 import java.util.Properties
 import java.util.UUID
@@ -30,7 +30,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class AuroraGateway(private val context: Context) {
-    val httpClient = PureHttpClient(context.cacheDir.resolve("http-cache"))
+    val httpClient = PureHttpClient()
 
     @Volatile
     private var cachedAuth: AuthData? = null
@@ -94,7 +94,15 @@ class AuroraGateway(private val context: Context) {
     }
 
     suspend fun resolvePlan(packageName: String): DownloadPlan = withContext(Dispatchers.IO) {
-        resolvePlanWithAuth(packageName, connect())
+        val auth = connect()
+        try {
+            resolvePlanWithAuth(packageName, auth)
+        } catch (exception: Exception) {
+            if (httpClient.responseCode.value !in AUTH_FAILURE_CODES) throw exception
+            Log.i(TAG, "Refreshing an expired anonymous Google Play session")
+            cachedAuth = null
+            resolvePlanWithAuth(packageName, connect(force = true))
+        }
     }
 
     private fun resolvePlanWithAuth(packageName: String, auth: AuthData): DownloadPlan {
@@ -130,8 +138,8 @@ class AuroraGateway(private val context: Context) {
         require(apkFiles.isNotEmpty()) { "Google Play returned no APK files for this device" }
 
         val artifacts = apkFiles.map { (owner, file) ->
-            if (!isAllowedDeliveryUrl(file.url)) {
-                Log.w(TAG, "Rejected delivery endpoint ${safeEndpoint(file.url)}")
+            if (!DeliveryUrlPolicy.isAllowed(file.url)) {
+                Log.w(TAG, "Rejected delivery endpoint ${DeliveryUrlPolicy.safeEndpoint(file.url)}")
                 throw IllegalArgumentException("Rejected a non-Google or non-HTTPS delivery URL")
             }
             ArtifactPlan(
@@ -145,7 +153,10 @@ class AuroraGateway(private val context: Context) {
                 sha256 = file.sha256,
                 isDependency = owner.packageName != app.packageName
             )
-        }.distinctBy { "${it.ownerPackage}/${it.name}" }
+        }
+        require(artifacts.map { it.relativePath }.distinct().size == artifacts.size) {
+            "Google Play returned conflicting APK file names"
+        }
 
         return DownloadPlan(
             id = UUID.randomUUID().toString(),
@@ -176,21 +187,8 @@ class AuroraGateway(private val context: Context) {
         stringPropertyNames().forEach { name -> json.put(name, getProperty(name)) }
     }
 
-    private fun isAllowedDeliveryUrl(url: String): Boolean = runCatching {
-        val uri = URI(url)
-        val host = uri.host?.lowercase().orEmpty()
-        uri.scheme.equals("https", ignoreCase = true) && ALLOWED_GOOGLE_SUFFIXES.any { suffix ->
-            host == suffix || host.endsWith(".$suffix")
-        }
-    }.getOrDefault(false)
-
     private fun hasDownloadUrls(files: List<PlayFile>): Boolean =
         files.isNotEmpty() && files.all { it.url.isNotBlank() }
-
-    private fun safeEndpoint(url: String): String = runCatching {
-        val uri = URI(url)
-        "${uri.scheme.orEmpty()}://${uri.host.orEmpty()}"
-    }.getOrDefault("<invalid URL>")
 
     private fun dispenserError(code: Int, serverMessage: String): String = when (code) {
         400 -> "Anonymous connection rejected the device profile"
@@ -204,14 +202,6 @@ class AuroraGateway(private val context: Context) {
     companion object {
         private const val TAG = "AuroraPure"
         const val DISPENSER_URL = "https://auroraoss.com/api/auth"
-
-        private val ALLOWED_GOOGLE_SUFFIXES = setOf(
-            "google.com",
-            "googleapis.com",
-            "googleusercontent.com",
-            "gvt1.com",
-            "ggpht.com",
-            "googlevideo.com"
-        )
+        private val AUTH_FAILURE_CODES = setOf(401, 403)
     }
 }

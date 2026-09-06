@@ -10,13 +10,11 @@ package com.aurora.pure.network
 import android.util.Log
 import com.aurora.gplayapi.data.models.PlayResponse
 import com.aurora.gplayapi.network.IHttpClient
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import okhttp3.Cache
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -26,19 +24,33 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
-class PureHttpClient(cacheDirectory: File) : IHttpClient {
+class PureHttpClient : IHttpClient {
     private val _responseCode = MutableStateFlow(0)
     override val responseCode: StateFlow<Int> = _responseCode.asStateFlow()
 
-    val client: OkHttpClient = OkHttpClient.Builder()
-        .cache(Cache(cacheDirectory, 32L * 1024L * 1024L))
+    private val protocolClient: OkHttpClient = baseClientBuilder()
+        // Authenticated protocol headers must never follow a redirect to another host.
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+
+    val downloadClient: OkHttpClient = baseClientBuilder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .addNetworkInterceptor { chain ->
+            val request = chain.request()
+            if (!DeliveryUrlPolicy.isAllowed(request.url)) {
+                throw IOException("Download redirect left the approved Google delivery hosts")
+            }
+            chain.proceed(request)
+        }
+        .build()
+
+    private fun baseClientBuilder() = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(40, TimeUnit.SECONDS)
         .writeTimeout(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
 
     fun call(url: String, headers: Map<String, String> = emptyMap()): Response {
         val request = Request.Builder()
@@ -46,7 +58,7 @@ class PureHttpClient(cacheDirectory: File) : IHttpClient {
             .headers(headers.toHeaders())
             .get()
             .build()
-        return client.newCall(request).execute()
+        return protocolClient.newCall(request).execute()
     }
 
     @Throws(IOException::class)
@@ -123,7 +135,7 @@ class PureHttpClient(cacheDirectory: File) : IHttpClient {
 
     private fun process(request: Request): PlayResponse {
         _responseCode.value = 0
-        val response = client.newCall(request).execute()
+        val response = protocolClient.newCall(request).execute()
         if (!response.isSuccessful) {
             Log.w(TAG, "${request.method} ${request.url.host} returned HTTP ${response.code}")
         }

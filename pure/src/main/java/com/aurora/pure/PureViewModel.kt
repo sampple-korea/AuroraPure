@@ -26,6 +26,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,10 +53,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     private var activeJob: Job? = null
     private var activeTaskId: String? = null
+    private var cancelRequestedTaskId: String? = null
     private var foreground = true
 
     init {
         recordRepository.save(restoredRecords)
+        viewModelScope.launch(Dispatchers.IO) { exporter.cleanupAbandonedExports() }
     }
 
     fun setQuery(value: String) {
@@ -160,14 +163,18 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     private fun acceptPlan(plan: DownloadPlan) {
         val replacing = _uiState.value.records.firstOrNull { it.id == plan.id }
         if (replacing != null) {
-            recordRepository.deleteTaskFiles(replacing.id)
             val replacement = plan.toRecord().copy(
                 id = replacing.id,
                 createdAt = replacing.createdAt
             )
-            replaceOrAdd(replacement)
-            _uiState.update { it.copy(screen = Screen.DOWNLOADS) }
-            if (activeJob == null && foreground) launchRecord(replacement)
+            viewModelScope.launch {
+                setBusy(true)
+                withContext(Dispatchers.IO) { recordRepository.deleteTaskFiles(replacing.id) }
+                replaceOrAdd(replacement)
+                _uiState.update { it.copy(screen = Screen.DOWNLOADS) }
+                setBusy(false)
+                if (activeJob == null && foreground) launchRecord(replacement)
+            }
             return
         }
         val existing = _uiState.value.records.firstOrNull {
@@ -271,7 +278,14 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         } catch (exception: DownloadCoordinator.CancelRequestedException) {
             updateRecord(record.id) { it.copy(status = TaskStatus.CANCELLED, error = "") }
         } catch (exception: CancellationException) {
-            updateRecord(record.id) { it.copy(status = TaskStatus.PAUSED, error = "") }
+            if (cancelRequestedTaskId == record.id) {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    recordRepository.deleteTaskFiles(record.id)
+                }
+                updateRecord(record.id) { it.copy(status = TaskStatus.CANCELLED, error = "") }
+            } else {
+                updateRecord(record.id) { it.copy(status = TaskStatus.PAUSED, error = "") }
+            }
             throw exception
         } catch (exception: Exception) {
             Log.w(
@@ -284,6 +298,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         } finally {
             activeTaskId = null
             activeJob = null
+            if (cancelRequestedTaskId == record.id) cancelRequestedTaskId = null
             if (foreground) {
                 currentRecords().firstOrNull { it.status == TaskStatus.QUEUED }?.let(::launchRecord)
             }
@@ -323,10 +338,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancel(record: DownloadRecord) {
         if (record.id == activeTaskId) {
+            cancelRequestedTaskId = record.id
             coordinator.cancel()
+            activeJob?.cancel()
         } else {
-            recordRepository.deleteTaskFiles(record.id)
             updateRecord(record.id) { it.copy(status = TaskStatus.CANCELLED, error = "") }
+            viewModelScope.launch(Dispatchers.IO) { recordRepository.deleteTaskFiles(record.id) }
         }
     }
 
@@ -334,6 +351,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         if (record.id == activeTaskId) return
         val updated = currentRecords().filterNot { it.id == record.id }
         publishRecords(updated)
+        viewModelScope.launch(Dispatchers.IO) { recordRepository.deleteTaskFiles(record.id) }
     }
 
     fun deleteOutput(record: DownloadRecord) {
@@ -362,7 +380,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onForegroundChanged(isForeground: Boolean) {
         foreground = isForeground
-        if (!isForeground && activeTaskId != null) coordinator.pause()
+        if (!isForeground && activeTaskId != null) {
+            coordinator.pause()
+            activeJob?.cancel()
+        }
     }
 
     fun navigate(screen: Screen) {
@@ -400,16 +421,28 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(message = "Pause or cancel the active download first") }
             return
         }
-        val success = recordRepository.clearTemporaryFiles()
-        _uiState.update { it.copy(message = if (success) "Temporary files cleared" else "Some temporary files could not be cleared") }
+        viewModelScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                val filesCleared = recordRepository.clearTemporaryFiles()
+                exporter.cleanupAbandonedExports()
+                filesCleared
+            }
+            _uiState.update {
+                it.copy(message = if (success) "Temporary files cleared" else "Some temporary files could not be cleared")
+            }
+        }
     }
 
     fun clearHistory() {
         val keep = currentRecords().filter {
             it.status in setOf(TaskStatus.QUEUED, TaskStatus.CHECKING, TaskStatus.DOWNLOADING, TaskStatus.PAUSED, TaskStatus.VERIFYING, TaskStatus.EXPORTING)
         }
+        val removed = currentRecords().filterNot { it in keep }
         publishRecords(keep)
         _uiState.update { it.copy(message = "Download history cleared; saved files were kept") }
+        viewModelScope.launch(Dispatchers.IO) {
+            removed.forEach { recordRepository.deleteTaskFiles(it.id) }
+        }
     }
 
     fun reconnect() {
@@ -497,11 +530,25 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(message = safeMessage(throwable)) }
     }
 
-    private fun safeMessage(throwable: Throwable): String =
-        throwable.message?.takeIf(String::isNotBlank)?.take(240) ?: "The operation failed"
+    private fun safeMessage(throwable: Throwable): String {
+        val raw = generateSequence(throwable) { it.cause }
+            .mapNotNull { it.message }
+            .firstOrNull(String::isNotBlank)
+            ?: return "The operation failed"
+        return raw
+            .replace(URL_PATTERN, "[redacted URL]")
+            .replace(EMAIL_PATTERN, "[redacted email]")
+            .replace(SECRET_FIELD_PATTERN, "$1=[redacted]")
+            .take(240)
+    }
 
     companion object {
         private const val TAG = "AuroraPure"
+        private val URL_PATTERN = Regex("(?i)https?://\\S+")
+        private val EMAIL_PATTERN = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
+        private val SECRET_FIELD_PATTERN = Regex(
+            "(?i)\\b(auth(?:orization|token)?|token|cookie|email)\\s*[=:]\\s*[^\\s,;]+"
+        )
         private val PACKAGE_PATTERN = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
         fun parsePackageName(input: String): String? {

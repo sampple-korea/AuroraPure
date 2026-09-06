@@ -7,11 +7,15 @@
 
 package com.aurora.pure.storage
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import android.provider.MediaStore
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.aurora.pure.data.DownloadOutcome
 import com.aurora.pure.data.ExportResult
@@ -21,6 +25,8 @@ import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,6 +34,13 @@ import org.json.JSONObject
 class ExportRepository(private val context: Context) {
     suspend fun export(outcome: DownloadOutcome, customTreeUri: String): ExportResult =
         withContext(Dispatchers.IO) {
+            if (customTreeUri.isBlank()) {
+                val available = StatFs(Environment.getExternalStorageDirectory().absolutePath)
+                    .availableBytes
+                require(available >= outcome.plan.totalBytes + MINIMUM_FREE_BYTES) {
+                    "Not enough space to save the completed file"
+                }
+            }
             val extension = if (outcome.plan.isSingleApk) "apk" else "zip"
             val mimeType = if (extension == "apk") APK_MIME else ZIP_MIME
             val baseName = buildBaseName(outcome)
@@ -41,20 +54,50 @@ class ExportRepository(private val context: Context) {
             try {
                 context.contentResolver.openOutputStream(target.uri, "w")!!.use { output ->
                     if (outcome.plan.isSingleApk) {
-                        outcome.artifacts.single().file.inputStream().use { it.copyTo(output) }
+                        outcome.artifacts.single().file.inputStream().use {
+                            copyCancellable(it, output)
+                        }
                     } else {
                         writeArchive(outcome, output)
                     }
                 }
-                target.finish()
-                val size = context.contentResolver.openAssetFileDescriptor(target.uri, "r")
+                currentCoroutineContext().ensureActive()
+                val finalUri = target.finish()
+                val size = context.contentResolver.openAssetFileDescriptor(finalUri, "r")
                     ?.use { descriptor -> descriptor.length.coerceAtLeast(0) } ?: 0L
-                ExportResult(target.uri.toString(), requestedName, size)
+                ExportResult(finalUri.toString(), requestedName, size)
             } catch (exception: Exception) {
                 target.abort()
                 throw exception
             }
         }
+
+    suspend fun cleanupAbandonedExports() = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolver = context.contentResolver
+            resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.RELATIVE_PATH}=? AND ${MediaStore.Downloads.IS_PENDING}=?",
+                arrayOf("Download/AuroraPure/", "1"),
+                null
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+                while (cursor.moveToNext()) {
+                    resolver.delete(
+                        ContentUris.withAppendedId(
+                            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                            cursor.getLong(idColumn)
+                        ),
+                        null,
+                        null
+                    )
+                }
+            }
+        }.onFailure {
+            Log.w(TAG, "Could not clean abandoned MediaStore exports (${it.javaClass.simpleName})")
+        }
+    }
 
     private fun createMediaStoreTarget(name: String, mimeType: String): PendingTarget {
         val values = ContentValues().apply {
@@ -75,6 +118,7 @@ class ExportRepository(private val context: Context) {
                     null,
                     null
                 )
+                uri
             },
             abort = { context.contentResolver.delete(uri, null, null) }
         )
@@ -94,6 +138,7 @@ class ExportRepository(private val context: Context) {
             uri = document.uri,
             finish = {
                 require(document.renameTo(name)) { "Could not finalize the exported file" }
+                document.uri
             },
             abort = { document.delete() }
         )
@@ -125,11 +170,12 @@ class ExportRepository(private val context: Context) {
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
     }
 
-    private fun writeArchive(outcome: DownloadOutcome, output: OutputStream) {
+    private suspend fun writeArchive(outcome: DownloadOutcome, output: OutputStream) {
         ZipOutputStream(output.buffered()).use { zip ->
             outcome.artifacts.forEach { item ->
+                currentCoroutineContext().ensureActive()
                 zip.putNextEntry(ZipEntry(item.plan.relativePath))
-                item.file.inputStream().use { it.copyTo(zip) }
+                item.file.inputStream().use { copyCancellable(it, zip) }
                 zip.closeEntry()
             }
 
@@ -144,6 +190,16 @@ class ExportRepository(private val context: Context) {
             zip.putNextEntry(ZipEntry("SHA256SUMS.txt"))
             zip.write(sums)
             zip.closeEntry()
+        }
+    }
+
+    private suspend fun copyCancellable(input: java.io.InputStream, output: OutputStream) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val count = input.read(buffer)
+            if (count < 0) return
+            output.write(buffer, 0, count)
         }
     }
 
@@ -183,12 +239,14 @@ class ExportRepository(private val context: Context) {
 
     private data class PendingTarget(
         val uri: Uri,
-        val finish: () -> Unit,
+        val finish: () -> Uri,
         val abort: () -> Unit
     )
 
     companion object {
+        private const val TAG = "AuroraPure"
         private const val APK_MIME = "application/vnd.android.package-archive"
         private const val ZIP_MIME = "application/zip"
+        private const val MINIMUM_FREE_BYTES = 16L * 1024L * 1024L
     }
 }

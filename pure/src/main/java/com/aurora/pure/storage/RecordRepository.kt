@@ -85,7 +85,10 @@ class RecordRepository(private val context: Context) {
 
     fun jobRoot() = context.cacheDir.resolve("pure-jobs")
 
-    fun taskDirectory(taskId: String) = jobRoot().resolve(taskId)
+    fun taskDirectory(taskId: String): java.io.File {
+        require(TASK_ID_PATTERN.matches(taskId)) { "Invalid download task identifier" }
+        return jobRoot().resolve(taskId)
+    }
 
     private fun DownloadRecord.toJson() = JSONObject().apply {
         put("id", id)
@@ -133,4 +136,10 @@ class RecordRepository(private val context: Context) {
         hasAdditionalData = optBoolean("hasAdditionalData"),
         error = optString("error")
     )
+
+    companion object {
+        private val TASK_ID_PATTERN = Regex(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        )
+    }
 }

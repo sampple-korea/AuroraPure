@@ -71,13 +71,18 @@ data class ArtifactPlan(
 ) {
     val relativePath: String
         get() {
-            val safeName = name.substringAfterLast('/').substringAfterLast('\\')
+            val safeName = safePathSegment(name.substringAfterLast('/').substringAfterLast('\\'))
             return if (isDependency) {
-                "dependencies/$ownerPackage/$safeName"
+                "dependencies/${safePathSegment(ownerPackage)}/$safeName"
             } else {
                 "app/$safeName"
             }
         }
+
+    private fun safePathSegment(value: String): String {
+        val sanitized = value.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return sanitized.takeUnless { it.isBlank() || it == "." || it == ".." } ?: "artifact.apk"
+    }
 }
 
 data class DownloadPlan(
@@ -97,6 +102,7 @@ data class DownloadPlan(
     fun fingerprint(): String {
         val canonical = buildString {
             append(packageName).append('|').append(versionCode).append('|')
+            append(deviceDescription).append('|').append(hasAdditionalData).append('\n')
             artifacts.sortedBy { it.relativePath }.forEach {
                 append(it.ownerPackage).append('|')
                 append(it.ownerVersionCode).append('|')

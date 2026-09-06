@@ -56,7 +56,11 @@ object DeviceProfile {
         )
         setProperty(
             "Locales",
-            (0 until Locale.getDefault().let { 1 }).map { Locale.getDefault().toString() }
+            configuration.locales.toLanguageTags()
+                .split(',')
+                .filter(String::isNotBlank)
+                .map { Locale.forLanguageTag(it).toString() }
+                .ifEmpty { listOf(Locale.getDefault().toString()) }
                 .joinToString(",")
         )
         setProperty(
