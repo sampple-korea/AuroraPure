@@ -8,6 +8,7 @@ package com.aurora.pure.storage
 import android.content.Context
 import android.net.Uri
 import com.aurora.pure.R
+import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.DownloadRecord
 import com.aurora.pure.data.TaskStatus
 import org.json.JSONArray
@@ -27,6 +28,12 @@ class RecordRepository(private val context: Context) {
     var customFolderUri: String
         get() = preferences.getString("custom_folder_uri", "").orEmpty()
         set(value) = preferences.edit().putString("custom_folder_uri", value).apply()
+
+    var architectureChoice: ArchitectureChoice
+        get() = ArchitectureChoice.fromStored(
+            preferences.getString("architecture_choice", "").orEmpty()
+        )
+        set(value) = preferences.edit().putString("architecture_choice", value.name).apply()
 
     fun load(): List<DownloadRecord> {
         val raw = preferences.getString("records", "[]").orEmpty()
@@ -100,6 +107,7 @@ class RecordRepository(private val context: Context) {
         put("displayName", displayName)
         put("versionName", versionName)
         put("versionCode", versionCode)
+        put("architectureChoice", architectureChoice.name)
         put("planFingerprint", planFingerprint)
         put("checkedAt", checkedAt)
         put("createdAt", createdAt)
@@ -123,6 +131,7 @@ class RecordRepository(private val context: Context) {
         displayName = optString("displayName"),
         versionName = optString("versionName"),
         versionCode = optLong("versionCode"),
+        architectureChoice = ArchitectureChoice.fromStored(optString("architectureChoice")),
         planFingerprint = optString("planFingerprint"),
         checkedAt = optLong("checkedAt"),
         createdAt = optLong("createdAt"),

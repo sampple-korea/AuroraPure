@@ -15,7 +15,7 @@
     <string name="source">Source</string>
     <string name="current_device">Current device</string>
     <string name="delivery_condition">Latest definition</string>
-    <string name="current_condition_latest">Latest version available to the current anonymous session and device</string>
+    <string name="current_condition_latest">Latest version available to the current anonymous session and selected delivery profiles</string>
     <string name="distribution_track">Release track</string>
     <string name="track_unknown">Stable/beta status unavailable</string>
     <string name="version">Version</string>
@@ -36,6 +36,17 @@
     <string name="connection_connected">Connected</string>
     <string name="connection_failed">Connection failed</string>
     <string name="reconnect">Reconnect</string>
+    <string name="download_configuration">Download configuration</string>
+    <string name="architecture">CPU architectures</string>
+    <string name="architecture_both">64 + 32 bit</string>
+    <string name="architecture_64">64 bit</string>
+    <string name="architecture_32">32 bit</string>
+    <string name="architecture_explanation">The combined option queries separate Google Play delivery profiles and preserves each complete APK set in its own ZIP folder.</string>
+    <string name="languages">Languages</string>
+    <string name="all_languages">All available language packs</string>
+    <string name="all_languages_explanation">All locales in Aurora/GPlay device profiles are requested by default. The result contains every language split Google Play actually offers for the app.</string>
+    <string name="delivery_profiles">Delivery profiles</string>
+    <string name="combined_variants_notice">The 64-bit and 32-bit deliveries are independent complete sets under variants/64bit and variants/32bit. Do not combine files from both folders into one install session.</string>
     <string name="storage">Storage</string>
     <string name="default_folder">Download/AuroraPure</string>
     <string name="choose_folder">Choose another folder</string>
@@ -80,7 +91,7 @@
     <string name="additional_data_warning">This app may need data outside its APK files. Aurora Pure saves APK files only.</string>
     <string name="split_notice">This is an archive of original APK files. Installation may require a separate split-APK tool.</string>
     <string name="plan_review_title">Review the download plan</string>
-    <string name="plan_review_body">These are the files Google Play currently delivers for this device. Review them before downloading.</string>
+    <string name="plan_review_body">These are the files Google Play currently delivers for the selected architecture profiles and all advertised locales. Review them before downloading.</string>
     <string name="version_changed_title">A newer delivered version is available</string>
     <string name="version_changed_body">Review the changed version and file set before downloading.</string>
     <string name="file_list">APK files</string>
@@ -124,7 +135,8 @@
     <string name="error_incomplete_credentials">The anonymous service returned incomplete connection information.</string>
     <string name="error_session_unavailable">Google Play did not create a usable anonymous session.</string>
     <string name="error_wrong_package">Google Play returned a different package.</string>
-    <string name="error_no_apk">Google Play returned no APK files for this device.</string>
+    <string name="error_no_apk">Google Play returned no APK files for the selected architecture profile.</string>
+    <string name="error_architecture_versions">Google Play offered different app versions to the 64-bit and 32-bit profiles. Choose one architecture so versions are never mixed.</string>
     <string name="error_delivery_security">The download address failed the Google delivery security policy.</string>
     <string name="error_conflicting_files">Google Play returned conflicting APK file names.</string>
     <string name="error_temporary_space">There is not enough temporary storage for this download.</string>

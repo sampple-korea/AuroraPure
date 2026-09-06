@@ -11,7 +11,6 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
@@ -169,8 +168,13 @@ class ExportRepository(private val context: Context) {
     }
 
     private fun buildBaseName(outcome: DownloadOutcome): String {
-        val abi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
-        return listOf(outcome.plan.packageName, "v${outcome.plan.versionCode}", abi)
+        val abiTag = outcome.plan.deliveryProfiles.joinToString("-") { it.primaryAbi }
+        return listOf(
+            outcome.plan.packageName,
+            "v${outcome.plan.versionCode}",
+            abiTag,
+            "all-languages"
+        )
             .filter(String::isNotBlank)
             .joinToString("_")
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -269,7 +273,8 @@ class ExportRepository(private val context: Context) {
     }
 
     private fun metadata(outcome: DownloadOutcome) = JSONObject().apply {
-        put("formatVersion", 1)
+        val plannedFiles = outcome.plan.artifacts.associateBy { it.relativePath }
+        put("formatVersion", 2)
         put("packageName", outcome.plan.packageName)
         put("versionName", outcome.plan.versionName)
         put("versionCode", outcome.plan.versionCode)
@@ -277,12 +282,28 @@ class ExportRepository(private val context: Context) {
         put("deliveryCheckedAt", timestamp(outcome.plan.checkedAt))
         put("downloadCompletedAt", timestamp(System.currentTimeMillis()))
         put("deviceConfiguration", outcome.plan.deviceDescription)
+        put("architectureSelection", outcome.plan.architectureChoice.name.lowercase())
+        put("allLanguagesRequested", true)
+        put("requestedLocales", JSONArray(outcome.plan.requestedLocales))
+        put("deliveryProfiles", JSONArray().apply {
+            outcome.plan.deliveryProfiles.forEach { profile ->
+                put(JSONObject().apply {
+                    put("variant", profile.variant.archiveDirectory)
+                    put("bitness", profile.variant.bitness)
+                    put("platforms", JSONArray(profile.platforms))
+                })
+            }
+        })
         put("hasAdditionalNonApkData", outcome.plan.hasAdditionalData)
         put("files", JSONArray().apply {
             outcome.verification.files.forEach { file ->
+                val planned = plannedFiles[file.relativePath]
                 put(JSONObject().apply {
                     put("path", file.relativePath)
+                    put("variant", file.variant.archiveDirectory)
                     put("packageName", file.ownerPackage)
+                    put("versionCode", planned?.ownerVersionCode ?: JSONObject.NULL)
+                    put("type", planned?.type ?: JSONObject.NULL)
                     put("size", file.size)
                     put("sha256", file.sha256)
                     put("integrity", file.integrity.name.lowercase())

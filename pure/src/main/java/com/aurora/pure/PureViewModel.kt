@@ -12,6 +12,7 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.pure.data.AppSummary
+import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ConnectionState
 import com.aurora.pure.data.DownloadConfirmation
 import com.aurora.pure.data.DownloadPlan
@@ -48,6 +49,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         PureUiState(
             records = restoredRecords.sortedByDescending { it.createdAt },
+            architectureChoice = recordRepository.architectureChoice,
             themeMode = recordRepository.themeMode,
             keepScreenOn = recordRepository.keepScreenOn,
             customFolderUri = recordRepository.customFolderUri
@@ -113,16 +115,18 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun prepareDownload() {
         val selected = _uiState.value.selected ?: return
         if (!selected.isFree || _uiState.value.busy) return
+        val architectureChoice = _uiState.value.architectureChoice
         viewModelScope.launch {
             Log.i(TAG, "Preparing delivery for ${selected.packageName}")
             setBusy(true)
             _uiState.update { it.copy(connection = ConnectionState.CONNECTING) }
-            runCatching { gateway.resolvePlan(selected.packageName) }
+            runCatching { gateway.resolvePlan(selected.packageName, architectureChoice) }
                 .onSuccess { plan ->
                     Log.i(
                         TAG,
                         "Delivery resolved for ${plan.packageName}: versionCode=${plan.versionCode}, " +
-                            "apkCount=${plan.artifacts.size}, bytes=${plan.totalBytes}"
+                            "architecture=${plan.architectureChoice}, apkCount=${plan.artifacts.size}, " +
+                            "bytes=${plan.totalBytes}"
                     )
                     _uiState.update { it.copy(connection = ConnectionState.CONNECTED) }
                     val changed = (selected.versionCode > 0 && plan.versionCode != selected.versionCode) ||
@@ -220,7 +224,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         var record = original
         try {
             updateRecord(record.id) { it.copy(status = TaskStatus.CHECKING, error = "") }
-            val latest = gateway.resolvePlan(record.packageName).copy(id = record.id)
+            val latest = gateway.resolvePlan(
+                record.packageName,
+                record.architectureChoice
+            ).copy(id = record.id)
             _uiState.update { it.copy(connection = ConnectionState.CONNECTED) }
             if (latest.fingerprint() != record.planFingerprint) {
                 updateRecord(record.id) {
@@ -320,7 +327,9 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         if (activeJob != null || !foreground) return
         viewModelScope.launch {
             setBusy(true)
-            runCatching { gateway.resolvePlan(record.packageName).copy(id = record.id) }
+            runCatching {
+                gateway.resolvePlan(record.packageName, record.architectureChoice).copy(id = record.id)
+            }
                 .onSuccess { plan ->
                     if (plan.fingerprint() != record.planFingerprint) {
                         _uiState.update {
@@ -428,6 +437,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(keepScreenOn = enabled) }
     }
 
+    fun setArchitectureChoice(choice: ArchitectureChoice) {
+        recordRepository.architectureChoice = choice
+        _uiState.update { it.copy(architectureChoice = choice) }
+    }
+
     fun setCustomFolder(uri: String) {
         recordRepository.customFolderUri = uri
         _uiState.update {
@@ -478,7 +492,9 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             setBusy(true)
             _uiState.update { it.copy(connection = ConnectionState.CONNECTING) }
             gateway.disconnect()
-            runCatching { gateway.connect(force = true) }
+            runCatching {
+                gateway.connectProfiles(_uiState.value.architectureChoice, force = true)
+            }
                 .onSuccess {
                     _uiState.update { state ->
                         state.copy(
@@ -505,6 +521,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         displayName = displayName,
         versionName = versionName,
         versionCode = versionCode,
+        architectureChoice = architectureChoice,
         planFingerprint = fingerprint(),
         checkedAt = checkedAt,
         createdAt = System.currentTimeMillis(),
@@ -594,6 +611,8 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 string(R.string.paid_unavailable)
             raw == "Google Play returned no APK files for this device" ->
                 string(R.string.error_no_apk)
+            raw == "Google Play returned different versions across selected architectures" ->
+                string(R.string.error_architecture_versions)
             raw == "Rejected a non-Google or non-HTTPS delivery URL" ||
                 raw == "Download URL is outside the approved Google delivery hosts" ||
                 raw == "Download redirect left the approved Google delivery hosts" ->

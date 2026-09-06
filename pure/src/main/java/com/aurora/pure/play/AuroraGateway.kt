@@ -18,61 +18,73 @@ import com.aurora.gplayapi.helpers.PurchaseHelper
 import com.aurora.gplayapi.helpers.web.WebAppDetailsHelper
 import com.aurora.gplayapi.helpers.web.WebSearchHelper
 import com.aurora.pure.data.AppSummary
+import com.aurora.pure.data.ArchitectureChoice
+import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.ArtifactPlan
+import com.aurora.pure.data.DeliveryProfile
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.network.DeliveryUrlPolicy
 import com.aurora.pure.network.PureHttpClient
 import java.util.Locale
 import java.util.Properties
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class AuroraGateway(private val context: Context) {
     val httpClient = PureHttpClient()
 
-    @Volatile
-    private var cachedAuth: AuthData? = null
+    private val cachedAuth = ConcurrentHashMap<ArchitectureVariant, AuthData>()
+    private val credentialsMutex = Mutex()
 
-    suspend fun connect(force: Boolean = false): AuthData = withContext(Dispatchers.IO) {
-        val existing = cachedAuth
+    @Volatile
+    private var cachedCredentials: AnonymousCredentials? = null
+
+    suspend fun connectProfiles(
+        architectureChoice: ArchitectureChoice,
+        force: Boolean = false
+    ) = withContext(Dispatchers.IO) {
+        DeviceProfile.deliveryProfiles(architectureChoice).forEach { profile ->
+            connect(profile, force)
+        }
+    }
+
+    private suspend fun connect(
+        profile: DeliveryProfile,
+        force: Boolean = false
+    ): AuthData = withContext(Dispatchers.IO) {
+        val existing = cachedAuth[profile.variant]
         if (!force && existing != null && AuthHelper.isValid(existing)) return@withContext existing
 
-        Log.i(TAG, "Requesting anonymous credentials")
-        val properties = DeviceProfile.properties(context)
-        val body = properties.toJson().toString().toByteArray()
-        val response = httpClient.postAuth(DISPENSER_URL, body)
-        if (!response.isSuccessful) {
-            throw IllegalStateException(dispenserError(response.code, response.errorString))
+        if (force) cachedAuth.remove(profile.variant)
+        val properties = DeviceProfile.properties(context, profile)
+        var credentials = anonymousCredentials(profile, properties)
+        Log.i(TAG, "Creating ${profile.variant.name} Google Play session")
+        val auth = try {
+            buildAuth(credentials, properties)
+        } catch (exception: Exception) {
+            if (credentials.sourceVariant == profile.variant) throw exception
+            Log.i(TAG, "The shared credentials were not reusable; requesting a profile-specific set")
+            invalidateCredentials()
+            credentials = anonymousCredentials(profile, properties)
+            buildAuth(credentials, properties)
         }
-
-        val json = JSONObject(String(response.responseBytes))
-        val email = json.optString("email")
-        val token = json.optString("authToken")
-        require(email.isNotBlank() && token.isNotBlank()) {
-            "Anonymous connection returned incomplete credentials"
-        }
-
-        Log.i(TAG, "Anonymous credentials received; creating Google Play session")
-        AuthHelper.using(httpClient).build(
-            email = email,
-            token = token,
-            tokenType = AuthHelper.Token.AUTH,
-            isAnonymous = true,
-            properties = properties,
-            locale = currentLocale()
-        ).also { auth ->
+        auth.also {
             require(auth.authToken.isNotBlank() && auth.deviceConfigToken.isNotBlank()) {
                 "Google Play did not create a usable anonymous session"
             }
-            cachedAuth = auth
-            Log.i(TAG, "Anonymous Google Play session is ready")
+            cachedAuth[profile.variant] = auth
+            Log.i(TAG, "Anonymous Google Play session is ready for ${profile.variant.name}")
         }
     }
 
     fun disconnect() {
-        cachedAuth = null
+        cachedAuth.clear()
+        cachedCredentials = null
     }
 
     suspend fun search(query: String): List<AppSummary> = withContext(Dispatchers.IO) {
@@ -93,20 +105,61 @@ class AuroraGateway(private val context: Context) {
             .toSummary()
     }
 
-    suspend fun resolvePlan(packageName: String): DownloadPlan = withContext(Dispatchers.IO) {
-        val auth = connect()
+    suspend fun resolvePlan(
+        packageName: String,
+        architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH
+    ): DownloadPlan = withContext(Dispatchers.IO) {
+        val profiles = DeviceProfile.deliveryProfiles(architectureChoice)
+        val resolutions = profiles.map { profile -> resolveVariant(packageName, profile) }
+        val versionCodes = resolutions.map { it.app.versionCode }.distinct()
+        require(versionCodes.size == 1) {
+            "Google Play returned different versions across selected architectures"
+        }
+
+        val primary = resolutions.first().app
+        val artifacts = resolutions.flatMap(ResolvedVariant::artifacts)
+        require(artifacts.map { it.relativePath }.distinct().size == artifacts.size) {
+            "Google Play returned conflicting APK file names"
+        }
+
+        DownloadPlan(
+            id = UUID.randomUUID().toString(),
+            packageName = primary.packageName,
+            displayName = primary.displayName.ifBlank { primary.packageName },
+            versionName = primary.versionName,
+            versionCode = primary.versionCode,
+            checkedAt = System.currentTimeMillis(),
+            deviceDescription = DeviceProfile.description(profiles),
+            architectureChoice = architectureChoice,
+            deliveryProfiles = profiles,
+            requestedLocales = DeviceProfile.allPlayLocales,
+            artifacts = artifacts,
+            hasAdditionalData = resolutions.any(ResolvedVariant::hasAdditionalData)
+        )
+    }
+
+    private suspend fun resolveVariant(
+        packageName: String,
+        profile: DeliveryProfile
+    ): ResolvedVariant {
+        val auth = connect(profile)
         try {
-            resolvePlanWithAuth(packageName, auth)
+            return resolveVariantWithAuth(packageName, profile, auth)
         } catch (exception: Exception) {
             if (httpClient.responseCode.value !in AUTH_FAILURE_CODES) throw exception
-            Log.i(TAG, "Refreshing an expired anonymous Google Play session")
-            cachedAuth = null
-            resolvePlanWithAuth(packageName, connect(force = true))
+            Log.i(TAG, "Refreshing an expired ${profile.variant.name} anonymous session")
+            cachedAuth.clear()
+            invalidateCredentials()
+            return resolveVariantWithAuth(packageName, profile, connect(profile, force = true))
         }
     }
 
-    private fun resolvePlanWithAuth(packageName: String, auth: AuthData): DownloadPlan {
-        Log.i(TAG, "Resolving native delivery metadata for $packageName")
+    private fun resolveVariantWithAuth(
+        packageName: String,
+        profile: DeliveryProfile,
+        auth: AuthData
+    ): ResolvedVariant {
+        Log.i(TAG, "Resolving ${profile.variant.name} delivery metadata for $packageName")
         val app = AppDetailsHelper(auth).using(httpClient).getAppByPackageName(packageName)
         require(app.packageName == packageName) { "Google Play returned a different package" }
         require(app.isFree) { "Paid apps are not supported by Aurora Pure" }
@@ -143,6 +196,7 @@ class AuroraGateway(private val context: Context) {
                 throw IllegalArgumentException("Rejected a non-Google or non-HTTPS delivery URL")
             }
             ArtifactPlan(
+                variant = profile.variant,
                 ownerPackage = owner.packageName,
                 ownerVersionCode = owner.versionCode,
                 name = file.name,
@@ -158,14 +212,8 @@ class AuroraGateway(private val context: Context) {
             "Google Play returned conflicting APK file names"
         }
 
-        return DownloadPlan(
-            id = UUID.randomUUID().toString(),
-            packageName = app.packageName,
-            displayName = app.displayName.ifBlank { app.packageName },
-            versionName = app.versionName,
-            versionCode = app.versionCode,
-            checkedAt = System.currentTimeMillis(),
-            deviceDescription = DeviceProfile.description(),
+        return ResolvedVariant(
+            app = app,
             artifacts = artifacts,
             hasAdditionalData = hasAdditionalData
         )
@@ -187,6 +235,47 @@ class AuroraGateway(private val context: Context) {
         stringPropertyNames().forEach { name -> json.put(name, getProperty(name)) }
     }
 
+    private suspend fun anonymousCredentials(
+        profile: DeliveryProfile,
+        properties: Properties
+    ): AnonymousCredentials = credentialsMutex.withLock {
+        cachedCredentials?.let { return@withLock it }
+        Log.i(TAG, "Requesting anonymous credentials for ${profile.variant.name}")
+        val body = properties.toJson().toString().toByteArray()
+        val response = httpClient.postAuth(DISPENSER_URL, body)
+        if (!response.isSuccessful) {
+            throw IllegalStateException(dispenserError(response.code, response.errorString))
+        }
+
+        val json = JSONObject(String(response.responseBytes))
+        val credentials = AnonymousCredentials(
+            email = json.optString("email"),
+            token = json.optString("authToken"),
+            sourceVariant = profile.variant
+        )
+        require(credentials.email.isNotBlank() && credentials.token.isNotBlank()) {
+            "Anonymous connection returned incomplete credentials"
+        }
+        cachedCredentials = credentials
+        credentials
+    }
+
+    private fun buildAuth(
+        credentials: AnonymousCredentials,
+        properties: Properties
+    ): AuthData = AuthHelper.using(httpClient).build(
+        email = credentials.email,
+        token = credentials.token,
+        tokenType = AuthHelper.Token.AUTH,
+        isAnonymous = true,
+        properties = properties,
+        locale = currentLocale()
+    )
+
+    private fun invalidateCredentials() {
+        cachedCredentials = null
+    }
+
     private fun hasDownloadUrls(files: List<PlayFile>): Boolean =
         files.isNotEmpty() && files.all { it.url.isNotBlank() }
 
@@ -201,6 +290,18 @@ class AuroraGateway(private val context: Context) {
         503 -> "Anonymous connection service is under maintenance"
         else -> serverMessage.ifBlank { "Anonymous connection failed (HTTP $code)" }
     }
+
+    private data class ResolvedVariant(
+        val app: App,
+        val artifacts: List<ArtifactPlan>,
+        val hasAdditionalData: Boolean
+    )
+
+    private data class AnonymousCredentials(
+        val email: String,
+        val token: String,
+        val sourceVariant: ArchitectureVariant
+    )
 
     companion object {
         private const val TAG = "AuroraPure"

@@ -72,6 +72,7 @@ import com.aurora.pure.BuildConfig
 import com.aurora.pure.PureViewModel
 import com.aurora.pure.R
 import com.aurora.pure.data.AppSummary
+import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ConnectionState
 import com.aurora.pure.data.DownloadConfirmation
 import com.aurora.pure.data.DownloadRecord
@@ -274,6 +275,11 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                     DetailRow(stringResource(R.string.version_code), app.versionCode.takeIf { it > 0 }?.toString() ?: "—")
                     DetailRow(stringResource(R.string.file_layout), stringResource(R.string.checked_before_download))
                     DetailRow(stringResource(R.string.save_format), stringResource(R.string.single_apk) + " / " + stringResource(R.string.split_zip))
+                    DetailRow(
+                        stringResource(R.string.architecture),
+                        architectureText(state.architectureChoice)
+                    )
+                    DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
                     DetailRow(stringResource(R.string.current_device), android.os.Build.MODEL)
                     DetailRow(stringResource(R.string.checked_at), formatDate(app.checkedAt))
                     if (app.size > 0) DetailRow(stringResource(R.string.size), formatBytes(app.size))
@@ -285,6 +291,19 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
         }
         if (!app.isFree) item {
             Text(stringResource(R.string.paid_unavailable), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+        }
+        item {
+            ArchitectureSelector(
+                selected = state.architectureChoice,
+                onSelected = viewModel::setArchitectureChoice,
+                enabled = !state.busy
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.all_languages_explanation),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         item {
             Button(
@@ -355,6 +374,14 @@ private fun DownloadCard(
                     statusText(record.status)
                 ),
                 style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                stringResource(
+                    R.string.verification_value,
+                    stringResource(R.string.architecture),
+                    architectureText(record.architectureChoice)
+                ),
+                style = MaterialTheme.typography.bodySmall
             )
             if (record.status in setOf(TaskStatus.DOWNLOADING, TaskStatus.PAUSED, TaskStatus.VERIFYING, TaskStatus.EXPORTING)) {
                 LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
@@ -469,6 +496,25 @@ private fun SettingsScreen(
             OutlinedButton(onClick = viewModel::reconnect, enabled = !state.busy) { Text(stringResource(R.string.reconnect)) }
         }
         HorizontalDivider()
+        SettingsSection(stringResource(R.string.download_configuration)) {
+            ArchitectureSelector(
+                selected = state.architectureChoice,
+                onSelected = viewModel::setArchitectureChoice,
+                enabled = !state.busy
+            )
+            Text(
+                stringResource(R.string.architecture_explanation),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
+            Text(
+                stringResource(R.string.all_languages_explanation),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        HorizontalDivider()
         SettingsSection(stringResource(R.string.storage)) {
             Text(if (state.customFolderUri.isBlank()) stringResource(R.string.default_folder) else state.customFolderUri, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -500,6 +546,31 @@ private fun SettingsScreen(
         HorizontalDivider()
         TextButton(onClick = { viewModel.navigate(Screen.ABOUT) }) { Text(stringResource(R.string.about)) }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun ArchitectureSelector(
+    selected: ArchitectureChoice,
+    onSelected: (ArchitectureChoice) -> Unit,
+    enabled: Boolean
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.architecture), fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                ArchitectureChoice.BOTH to stringResource(R.string.architecture_both),
+                ArchitectureChoice.BIT_64 to stringResource(R.string.architecture_64),
+                ArchitectureChoice.BIT_32 to stringResource(R.string.architecture_32)
+            ).forEach { (choice, label) ->
+                FilterChip(
+                    selected = selected == choice,
+                    onClick = { onSelected(choice) },
+                    label = { Text(label) },
+                    enabled = enabled
+                )
+            }
+        }
     }
 }
 
@@ -587,7 +658,12 @@ private fun VersionConfirmation(
                     stringResource(R.string.distribution_track),
                     stringResource(R.string.track_unknown)
                 )
-                DetailRow(stringResource(R.string.current_device), confirmation.plan.deviceDescription)
+                DetailRow(
+                    stringResource(R.string.architecture),
+                    architectureText(confirmation.plan.architectureChoice)
+                )
+                DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
+                DetailRow(stringResource(R.string.delivery_profiles), confirmation.plan.deviceDescription)
                 DetailRow(stringResource(R.string.checked_at), formatDate(confirmation.plan.checkedAt))
                 DetailRow(
                     stringResource(R.string.file_layout),
@@ -627,12 +703,28 @@ private fun VersionConfirmation(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+                if (confirmation.plan.architectureChoice == ArchitectureChoice.BOTH) {
+                    Text(
+                        stringResource(R.string.combined_variants_notice),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         },
         confirmButton = { Button(onClick = onConfirm) { Text(stringResource(R.string.continue_action)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
+
+@Composable
+private fun architectureText(choice: ArchitectureChoice): String = stringResource(
+    when (choice) {
+        ArchitectureChoice.BOTH -> R.string.architecture_both
+        ArchitectureChoice.BIT_64 -> R.string.architecture_64
+        ArchitectureChoice.BIT_32 -> R.string.architecture_32
+    }
+)
 
 @Composable
 private fun statusText(status: TaskStatus): String {

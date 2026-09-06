@@ -301,6 +301,7 @@ class DownloadCoordinator(
 
             fileReports += FileVerification(
                 relativePath = item.plan.relativePath,
+                variant = item.plan.variant,
                 ownerPackage = item.plan.ownerPackage,
                 size = item.file.length(),
                 sha256 = localSha256,

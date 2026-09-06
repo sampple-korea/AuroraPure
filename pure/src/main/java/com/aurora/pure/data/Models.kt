@@ -45,6 +45,43 @@ enum class VerificationState {
     UNAVAILABLE
 }
 
+enum class ArchitectureChoice {
+    BOTH,
+    BIT_64,
+    BIT_32;
+
+    val variants: List<ArchitectureVariant>
+        get() = when (this) {
+            BOTH -> listOf(ArchitectureVariant.BIT_64, ArchitectureVariant.BIT_32)
+            BIT_64 -> listOf(ArchitectureVariant.BIT_64)
+            BIT_32 -> listOf(ArchitectureVariant.BIT_32)
+        }
+
+    companion object {
+        fun fromStored(value: String): ArchitectureChoice =
+            entries.firstOrNull { it.name == value } ?: BOTH
+    }
+}
+
+enum class ArchitectureVariant(
+    val archiveDirectory: String,
+    val bitness: Int
+) {
+    BIT_64("64bit", 64),
+    BIT_32("32bit", 32)
+}
+
+data class DeliveryProfile(
+    val variant: ArchitectureVariant,
+    val platforms: List<String>
+) {
+    init {
+        require(platforms.isNotEmpty()) { "A delivery profile needs at least one ABI" }
+    }
+
+    val primaryAbi: String get() = platforms.first()
+}
+
 data class AppSummary(
     val packageName: String,
     val displayName: String,
@@ -59,6 +96,7 @@ data class AppSummary(
 )
 
 data class ArtifactPlan(
+    val variant: ArchitectureVariant,
     val ownerPackage: String,
     val ownerVersionCode: Long,
     val name: String,
@@ -72,11 +110,12 @@ data class ArtifactPlan(
     val relativePath: String
         get() {
             val safeName = safePathSegment(name.substringAfterLast('/').substringAfterLast('\\'))
-            return if (isDependency) {
+            val ownerPath = if (isDependency) {
                 "dependencies/${safePathSegment(ownerPackage)}/$safeName"
             } else {
                 "app/$safeName"
             }
+            return "variants/${variant.archiveDirectory}/$ownerPath"
         }
 
     private fun safePathSegment(value: String): String {
@@ -93,6 +132,9 @@ data class DownloadPlan(
     val versionCode: Long,
     val checkedAt: Long,
     val deviceDescription: String,
+    val architectureChoice: ArchitectureChoice,
+    val deliveryProfiles: List<DeliveryProfile>,
+    val requestedLocales: List<String>,
     val artifacts: List<ArtifactPlan>,
     val hasAdditionalData: Boolean
 ) {
@@ -102,8 +144,15 @@ data class DownloadPlan(
     fun fingerprint(): String {
         val canonical = buildString {
             append(packageName).append('|').append(versionCode).append('|')
-            append(deviceDescription).append('|').append(hasAdditionalData).append('\n')
+            append(deviceDescription).append('|').append(architectureChoice.name).append('|')
+            append(hasAdditionalData).append('\n')
+            deliveryProfiles.forEach { profile ->
+                append(profile.variant.name).append('|')
+                append(profile.platforms.joinToString(",")).append('\n')
+            }
+            append("locales|").append(requestedLocales.joinToString(",")).append('\n')
             artifacts.sortedBy { it.relativePath }.forEach {
+                append(it.variant.name).append('|')
                 append(it.ownerPackage).append('|')
                 append(it.ownerVersionCode).append('|')
                 append(it.relativePath).append('|')
@@ -124,6 +173,7 @@ data class DownloadRecord(
     val displayName: String,
     val versionName: String,
     val versionCode: Long,
+    val architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH,
     val planFingerprint: String,
     val checkedAt: Long,
     val createdAt: Long,
@@ -143,6 +193,7 @@ data class DownloadRecord(
 
 data class FileVerification(
     val relativePath: String,
+    val variant: ArchitectureVariant,
     val ownerPackage: String,
     val size: Long,
     val sha256: String,
@@ -205,6 +256,7 @@ data class PureUiState(
     val message: String = "",
     val connection: ConnectionState = ConnectionState.IDLE,
     val confirmation: DownloadConfirmation? = null,
+    val architectureChoice: ArchitectureChoice = ArchitectureChoice.BOTH,
     val themeMode: Int = 0,
     val keepScreenOn: Boolean = false,
     val customFolderUri: String = ""
