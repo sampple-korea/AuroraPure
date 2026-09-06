@@ -1,118 +1,110 @@
-# Aurora Store
+# Aurora Pure
 
-Aurora Store enables you to search and download apps from the official Google Play store. You can check app descriptions, screenshots, updates, reviews, and download the APK directly from Google Play to your device. 
+[![Android CI](https://github.com/sampple-korea/AuroraPure/actions/workflows/android.yml/badge.svg)](https://github.com/sampple-korea/AuroraPure/actions/workflows/android.yml)
+[![Latest release](https://img.shields.io/github/v/release/sampple-korea/AuroraPure?display_name=tag)](https://github.com/sampple-korea/AuroraPure/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-To use Aurora Store, log in using Google Play account, when you first open and configure Aurora Store.
+Google Play가 **현재 익명 세션과 현재 기기 조건에 제공하는 최신 원본 APK**를 저장하는 다운로드 전용 Android 앱입니다. Aurora Store 4.8.3을 기반으로 필요한 Google Play 연동만 남기고 설치·업데이트 관리 기능은 제거했습니다.
 
-Unlike a traditional app store, Aurora Store does not own, license or distribute any apps. All apps, app descriptions, screenshots and other content in Aurora Store are directly accessed, downloaded and/or displayed from Google Play. 
+> Aurora Pure는 Google 또는 Aurora OSS의 공식 앱이 아닌 독립적인 GPL 포크입니다.
 
-Aurora Store works exactly like a door or a browser, allowing you to log in to your Google Play account and find the apps from Google Play. 
+## 화면
 
-*_Please note that Aurora Store does not have any approval, sponsorship or authorization from Google, Google Play, any apps downloaded through Aurora Store or any app developers; neither does Aurora Store have any affiliation, cooperation or connection with them._*
+<p align="center">
+  <img src="docs/screenshots/search-ko.png" width="30%" alt="한국어 검색 화면">
+  <img src="docs/screenshots/plan-ko.png" width="30%" alt="한국어 다운로드 계획 확인 화면">
+  <img src="docs/screenshots/completed-ko.png" width="30%" alt="한국어 다운로드 검증 완료 화면">
+</p>
 
-[<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="90">](https://f-droid.org/packages/com.aurora.store/)
-[<img src="https://gitlab.com/IzzyOnDroid/repo/-/raw/master/assets/IzzyOnDroid.png" alt="Get it on IzzyOnDroid" height="90">](https://apt.izzysoft.de/fdroid/index/apk/com.aurora.store)
+위 이미지는 현재 릴리스 APK를 Android 16에서 직접 실행해 캡처한 화면입니다.
 
-## Features
+## 다운로드
 
-- FOSS: Has GPLv3 licence
-- Beautiful design: Built upon latest Material 3 guidelines
-- Account login: You can login with either personal or an anonymous account
-- Device & Locale spoofing: Change your device and/or locale to access geo locked apps
-- [Exodus Privacy](https://exodus-privacy.eu.org/) integration: Instantly see trackers in app
-- [Plexus](https://plexus.techlore.tech/) integration: Instantly see app compatibility without Google Play Services or with microG
-- Updates blacklisting: Ignore updates for specific apps
-- Download manager
-- Manual downloads: allows you to download older version of apps, provided
-  - The APKs are available with Google
-  - You know the version codes for older versions 
+[GitHub Releases](https://github.com/sampple-korea/AuroraPure/releases/latest)에서 `AuroraPure-1.0.0.apk`와 `SHA256SUMS.txt`를 받으세요. Android 10(API 29) 이상을 지원합니다.
 
-## Limitations
+Aurora Pure는 APK를 **다운로드만** 합니다. 내려받은 앱을 설치하려면 Android 파일 관리자 또는 분할 APK를 지원하는 별도 도구를 사용해야 합니다.
 
-- The underlying API used is reversed engineered from the Google Play Store, changes on side may break it.
-- Provides only base minimum features
-  - Can not download or update paid apps.
-  - Can not update apps/games with [Play Asset Delivery](https://developer.android.com/guide/playcore/asset-delivery)
-- Multiple in-app features are not available if logged in as Anonymous.
-  - Library
-  - Purchase History
-  - Editor's choice
-  - Beta Programs
-  - Review Add/Update
-- Token dispenser server is not super reliable, downtimes are expected.  
+## 핵심 기능
 
-## Downloads
+- 앱 이름, 패키지명, Google Play 링크 검색
+- 앱 아이콘, 개발자, 설명과 제공 버전 표시
+- 개인 Google 계정 입력 없는 익명 세션
+- 다운로드 직전 제공 버전과 APK 파일 구성을 다시 조회
+- 단일 APK와 기기별 분할 APK, 확인 가능한 공유 라이브러리 APK 보존
+- 다운로드 일시정지·안전한 HTTP Range 이어받기·취소·재시도
+- APK 해시, 서명, 패키지명, 버전, 분할 구성 검증
+- `Download/AuroraPure` 또는 사용자가 선택한 폴더로 내보내기
+- 저장 완료 파일 공유, 기록만 삭제, 실제 파일 삭제를 구분
+- 한국어와 영어 전체 UI, 시스템/밝게/어둡게 테마
 
-Please only download the latest stable releases from one of these sources:
+### 의도적으로 없는 기능
 
-- [Official website](https://auroraoss.com/)
-- [GitLab Releases](https://gitlab.com/AuroraOSS/AuroraStore/-/releases)
-- [IzzyOnDroid](https://apt.izzysoft.de/fdroid/index/apk/com.aurora.store) (reproducible)
-- [F-Droid](https://f-droid.org/packages/com.aurora.store/) (signed by F-Droid, [more details](https://f-droid.org/docs/Signing_Process/))
-- [App Gallery](https://appgallery.huawei.com/app/C110907863) (limited to certain countries)
+- 바로 설치, 시스템 설치기 호출, 루트·Shizuku 설치
+- 설치된 앱 목록 조회와 업데이트 목록
+- 자동 업데이트, 예약 다운로드, 부팅 후 자동 재개
+- 백그라운드 서비스, WorkManager, 다운로드 알림
+- 개인 Google 계정 로그인과 다중 계정
+- 추천·인기 순위·리뷰 작성·행동 분석·광고
+- 임의 URL 또는 APK 미러 다운로드
 
-You can also get latest debug builds signed with AOSP test keys for testing latest changes from our [GitLab Package Registry](https://gitlab.com/AuroraOSS/AuroraStore/-/packages/24103616).
+평점·이미지·설명처럼 앱을 식별하는 정보는 검색·상세 화면에 남길 수 있지만, APK 저장에 필요하지 않은 별도 추천/관리 요청은 하지 않습니다.
 
-## Certificate Fingerprints
+## 정확한 동작
 
-- SHA1: 94:42:75:D7:59:8B:C0:3E:48:85:06:06:42:25:A7:19:90:A2:22:02
-- SHA256: 4C:62:61:57:AD:02:BD:A3:40:1A:72:63:55:5F:68:A7:96:63:FC:3E:13:A4:D4:36:9A:12:57:09:41:AA:28:0F
+### 여기서 말하는 “최신”
 
-## Support
+Aurora Pure의 최신 버전은 전 세계에서 가장 큰 버전 번호가 아니라, **다운로드를 시작하는 시점에 현재 익명 세션과 현재 기기 구성으로 Google Play가 제공한 버전**입니다. 배포 트랙을 응답에서 확인할 수 없으면 “정식/베타 확인 불가”로 표시합니다.
 
-Aurora Store v4 is still in on-going development! Bugs are to be expected! Any bug reports are appreciated.
-Please visit [Aurora Wiki](https://gitlab.com/AuroraOSS/AuroraStore/-/wikis/home) for FAQs.
+상세 화면에서 본 결과와 다운로드 직전 결과가 다르면 새 계획을 보여주고 다시 확인받습니다. 다운로드가 시작된 뒤에는 계획을 고정해 서로 다른 버전의 APK가 섞이지 않게 합니다.
 
-- [Telegram](https://t.me/AuroraSupport)
-- [XDA Developers](https://forum.xda-developers.com/t/app-5-0-aurora-store-open-source-google-play-client.3739733/)
+### 저장 결과
 
-## Permissions
+| Google Play 제공 구성 | 최종 파일 | 내용 |
+| --- | --- | --- |
+| APK 1개 | `.apk` | 받은 APK 바이트를 변경 없이 저장 |
+| APK 여러 개 | `.zip` | 원본 APK, `download-info.json`, `SHA256SUMS.txt` |
 
-- `android.permission.INTERNET` to download and install/update apps from the Google Play servers
-- `android.permission.ACCESS_NETWORK_STATE` to check internet availability
-- `android.permission.FOREGROUND_SERVICE` to download apps without interruption
-- `android.permission.FOREGROUND_SERVICE_DATA_SYNC` to download apps without interruption
-- `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` to auto-update apps without interruption (optional)
-- `android.permission.MANAGE_EXTERNAL_STORAGE` to access the OBB directory to download APK expansion files for games or large apps
-- `android.permission.READ_EXTERNAL_STORAGE` to access the OBB directory to download APK expansion files for games or large apps
-- `android.permission.WRITE_EXTERNAL_STORAGE` to access the OBB directory to download APK expansion files for games or large apps
-- `android.permission.QUERY_ALL_PACKAGES` to check updates for all installed apps
-- `android.permission.REQUEST_INSTALL_PACKAGES` to install and update apps
-- `android.permission.REQUEST_DELETE_PACKAGES` to uninstall apps
-- `android.permission.ENFORCE_UPDATE_OWNERSHIP` to silently update apps
-- `android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION` to silently update apps
-- `android.permission.POST_NOTIFICATIONS` to notify user about ongoing downloads, available updates, and errors (optional)
-- `android.permission.USE_CREDENTIALS` to allow users to sign into their personal Google account via microG
+ZIP은 설치 파일 형식 호환성을 약속하는 `.apks`가 아니라 원본 보관용 묶음입니다. 실행 후 받는 Play Asset Delivery 데이터, 계정 데이터, 게임 리소스의 완전한 백업은 범위에 포함하지 않습니다.
 
-## Screenshots
+### 전경에서만 다운로드
 
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot-01.png" height="400">
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot-03.png" height="400">
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot-07.png" height="400">
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot-08.png" height="400">
+앱 화면이 완전히 보이지 않으면 진행 중인 네트워크 전송을 일시정지합니다. 앱으로 돌아와 **이어받기**를 누르면 저장된 작업 계획과 부분 파일을 확인한 후 계속합니다. 화면 회전이나 Aurora Pure 내부 화면 이동은 같은 작업을 중복 시작하지 않습니다.
 
-## Translations
+## 검증과 권한
 
-Don't see your preferred language? Click on the widget below to help translate Aurora Store!
+완료 표시는 다음 순서가 모두 성공한 뒤에만 나타납니다.
 
-<a href="https://hosted.weblate.org/engage/aurora-store/">
-  <img src="https://hosted.weblate.org/widgets/aurora-store/-/287x66-grey.png" alt="Translation status" />
-</a>
+1. 계획의 모든 APK 다운로드
+2. 제공 해시(있는 경우), APK 서명, 패키지·버전·분할 구성 검증
+3. 최종 APK 또는 ZIP 기록
+4. 저장된 최종 결과를 다시 열어 파일 수와 SHA-256 재검증
 
-## Donations
+릴리스 Manifest가 요청하는 일반 권한은 다음 두 개뿐입니다.
 
-You can support Aurora Store's development financially via options below. For more options, checkout the **About** page within the Aurora Store.
+- `android.permission.INTERNET`
+- `android.permission.ACCESS_NETWORK_STATE`
 
-[![Liberapay](https://liberapay.com/assets/widgets/donate.svg)](https://liberapay.com/whyorean)
-<a href="https://www.paypal.com/paypalme/AuroraDev">
-  <img src="https://www.paypalobjects.com/webstatic/mktg/logo/AM_mc_vs_dc_ae.jpg" height="45" alt="PayPal">
-</a>
+설치 권한, 전체 앱 조회, 모든 파일 접근, 알림, 포그라운드 서비스 권한은 요청하지 않습니다. 자세한 데이터 처리는 [개인정보 안내](PRIVACY.md)를 확인하세요.
 
-## Project references
+## 빌드와 검증
 
-Aurora Store is based on these projects
+재현 가능한 개발 환경과 명령은 [BUILDING.md](BUILDING.md)에 있습니다. 모든 푸시에서 단위 테스트, Android Lint, R8 축소 릴리스 빌드와 다운로드 전용 소스 경계 검사를 수행합니다. 실제 Google Play APK 픽스처 통합 검증은 릴리스 전에 별도로 실행합니다.
 
-- [YalpStore](https://github.com/yeriomin/YalpStore)
-- [AppCrawler](https://github.com/Akdeniz/google-play-crawler)
-- [Raccoon](https://github.com/onyxbits/raccoon4)
-- [SAI](https://github.com/Aefyr/SAI)
+```bash
+./gradlew --no-daemon --no-configuration-cache \
+  :pure:testDebugUnitTest :pure:lintDebug :pure:assembleRelease
+```
+
+## 출처·라이선스
+
+Aurora Pure는 [Aurora Store 4.8.3](https://gitlab.com/AuroraOSS/AuroraStore/-/tree/4.8.3)의 커밋 `e9be2c8293e02cc362d603df6b12b019fdb849f2`에서 파생됐습니다. 소스와 수정 사항은 GNU GPL v3 이상 조건으로 제공됩니다.
+
+- [원본 및 상표 관련 고지](NOTICE.md)
+- [릴리스 노트](RELEASE_NOTES.md)
+- [GNU GPL v3 라이선스](LICENSE)
+
+Google Play의 비공식 API와 외부 익명 인증 서비스 상태에 따라 검색이나 다운로드가 일시적으로 작동하지 않을 수 있습니다.
+
+---
+
+**English:** Aurora Pure is a Korean-first, download-only Aurora Store fork. It saves the latest original APK delivery available to the current anonymous session and device, preserves split APKs in a ZIP, and never installs apps or manages updates.
