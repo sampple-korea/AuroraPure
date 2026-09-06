@@ -137,5 +137,6 @@
     <string name="error_folder_read_only">The selected folder is read-only.</string>
     <string name="error_create_output">Android could not create the saved file.</string>
     <string name="error_finalize_output">The saved file could not be finalized.</string>
+    <string name="error_saved_verification">The final saved file could not be verified and was removed.</string>
     <string name="error_http">The download request failed (HTTP %1$s).</string>
 </resources>

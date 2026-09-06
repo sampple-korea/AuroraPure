@@ -42,7 +42,7 @@ object DeviceProfile {
         )
         setProperty(
             "HasFiveWayNavigation",
-            (configuration.navigation == Configuration.NAVIGATIONHIDDEN_YES).toString()
+            (configuration.navigation != Configuration.NAVIGATION_NONAV).toString()
         )
 
         val metrics = context.resources.displayMetrics

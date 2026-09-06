@@ -20,9 +20,11 @@ import androidx.documentfile.provider.DocumentFile
 import com.aurora.pure.data.DownloadOutcome
 import com.aurora.pure.data.ExportResult
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -52,7 +54,9 @@ class ExportRepository(private val context: Context) {
             }
 
             try {
-                context.contentResolver.openOutputStream(target.uri, "w")!!.use { output ->
+                requireNotNull(context.contentResolver.openOutputStream(target.uri, "w")) {
+                    "Android could not open the saved file"
+                }.use { output ->
                     if (outcome.plan.isSingleApk) {
                         outcome.artifacts.single().file.inputStream().use {
                             copyCancellable(it, output)
@@ -63,6 +67,7 @@ class ExportRepository(private val context: Context) {
                 }
                 currentCoroutineContext().ensureActive()
                 val finalUri = target.finish()
+                verifySavedFile(finalUri, outcome)
                 val size = context.contentResolver.openAssetFileDescriptor(finalUri, "r")
                     ?.use { descriptor -> descriptor.length.coerceAtLeast(0) } ?: 0L
                 ExportResult(finalUri.toString(), requestedName, size)
@@ -112,12 +117,13 @@ class ExportRepository(private val context: Context) {
         return PendingTarget(
             uri = uri,
             finish = {
-                context.contentResolver.update(
+                val updated = context.contentResolver.update(
                     uri,
                     ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
                     null,
                     null
                 )
+                require(updated == 1) { "Could not finalize the exported file" }
                 uri
             },
             abort = { context.contentResolver.delete(uri, null, null) }
@@ -201,6 +207,65 @@ class ExportRepository(private val context: Context) {
             if (count < 0) return
             output.write(buffer, 0, count)
         }
+    }
+
+    private suspend fun verifySavedFile(uri: Uri, outcome: DownloadOutcome) {
+        val expected = outcome.verification.files.associate { it.relativePath to it.sha256 }
+        if (outcome.plan.isSingleApk) {
+            val actual = requireNotNull(context.contentResolver.openInputStream(uri)) {
+                "Android could not reopen the saved file"
+            }.use { digestCancellable(it) }
+            require(actual.equals(expected.values.single(), ignoreCase = true)) {
+                "Saved file verification failed"
+            }
+            return
+        }
+
+        val observed = mutableMapOf<String, String>()
+        var metadataFound = false
+        var sumsFound = false
+        requireNotNull(context.contentResolver.openInputStream(uri)) {
+            "Android could not reopen the saved file"
+        }.use { input ->
+            ZipInputStream(input.buffered()).use { zip ->
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val entry = zip.nextEntry ?: break
+                    when (entry.name) {
+                        "download-info.json" -> metadataFound = true
+                        "SHA256SUMS.txt" -> sumsFound = true
+                        in expected -> {
+                            require(!entry.isDirectory && entry.name !in observed) {
+                                "Saved archive contains an invalid APK entry"
+                            }
+                            observed[entry.name] = digestCancellable(zip)
+                        }
+                        else -> throw IllegalArgumentException(
+                            "Saved archive contains an unexpected entry"
+                        )
+                    }
+                    zip.closeEntry()
+                }
+            }
+        }
+        require(metadataFound && sumsFound && observed.keys == expected.keys) {
+            "Saved archive is missing required entries"
+        }
+        require(observed.all { (path, digest) -> digest.equals(expected[path], ignoreCase = true) }) {
+            "Saved archive verification failed"
+        }
+    }
+
+    private suspend fun digestCancellable(input: java.io.InputStream): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun metadata(outcome: DownloadOutcome) = JSONObject().apply {

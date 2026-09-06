@@ -135,5 +135,6 @@
     <string name="error_folder_read_only">선택한 저장 폴더에 쓸 수 없습니다.</string>
     <string name="error_create_output">Android가 저장 파일을 만들지 못했습니다.</string>
     <string name="error_finalize_output">저장 파일을 완성하지 못했습니다.</string>
+    <string name="error_saved_verification">최종 저장 파일을 검증하지 못해 결과 파일을 삭제했습니다.</string>
     <string name="error_http">다운로드 요청에 실패했습니다(HTTP %1$s).</string>
 </resources>

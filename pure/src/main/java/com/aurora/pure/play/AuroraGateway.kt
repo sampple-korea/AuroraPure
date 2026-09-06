@@ -61,7 +61,7 @@ class AuroraGateway(private val context: Context) {
             tokenType = AuthHelper.Token.AUTH,
             isAnonymous = true,
             properties = properties,
-            locale = Locale.getDefault()
+            locale = currentLocale()
         ).also { auth ->
             require(auth.authToken.isNotBlank() && auth.deviceConfigToken.isNotBlank()) {
                 "Google Play did not create a usable anonymous session"
@@ -76,7 +76,7 @@ class AuroraGateway(private val context: Context) {
     }
 
     suspend fun search(query: String): List<AppSummary> = withContext(Dispatchers.IO) {
-        val helper = WebSearchHelper().using(httpClient).with(Locale.getDefault())
+        val helper = WebSearchHelper().using(httpClient).with(currentLocale())
         helper.searchResults(query.trim())
             .streamClusters
             .values
@@ -88,7 +88,7 @@ class AuroraGateway(private val context: Context) {
     suspend fun details(packageName: String): AppSummary = withContext(Dispatchers.IO) {
         WebAppDetailsHelper()
             .using(httpClient)
-            .with(Locale.getDefault())
+            .with(currentLocale())
             .getAppByPackageName(packageName)
             .toSummary()
     }
@@ -189,6 +189,9 @@ class AuroraGateway(private val context: Context) {
 
     private fun hasDownloadUrls(files: List<PlayFile>): Boolean =
         files.isNotEmpty() && files.all { it.url.isNotBlank() }
+
+    private fun currentLocale(): Locale =
+        context.resources.configuration.locales[0] ?: Locale.getDefault()
 
     private fun dispenserError(code: Int, serverMessage: String): String = when (code) {
         400 -> "Anonymous connection rejected the device profile"

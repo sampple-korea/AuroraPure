@@ -621,6 +621,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 string(R.string.error_create_output)
             raw == "Could not finalize the exported file" ->
                 string(R.string.error_finalize_output)
+            raw == "Android could not open the saved file" ||
+                raw == "Android could not reopen the saved file" ||
+                raw.startsWith("Saved file verification failed") ||
+                raw.startsWith("Saved archive ") ->
+                string(R.string.error_saved_verification)
             raw.startsWith("Download failed (HTTP ") -> {
                 val status = Regex("HTTP (\\d+)").find(raw)?.groupValues?.getOrNull(1) ?: "?"
                 getApplication<Application>().getString(R.string.error_http, status)
