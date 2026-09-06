@@ -7,6 +7,7 @@
 
 package com.aurora.pure.network
 
+import android.util.Log
 import com.aurora.gplayapi.data.models.PlayResponse
 import com.aurora.gplayapi.network.IHttpClient
 import java.io.File
@@ -122,7 +123,11 @@ class PureHttpClient(cacheDirectory: File) : IHttpClient {
 
     private fun process(request: Request): PlayResponse {
         _responseCode.value = 0
-        return buildResponse(client.newCall(request).execute())
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            Log.w(TAG, "${request.method} ${request.url.host} returned HTTP ${response.code}")
+        }
+        return buildResponse(response)
     }
 
     private fun buildResponse(response: Response): PlayResponse = response.use {
@@ -141,6 +146,10 @@ class PureHttpClient(cacheDirectory: File) : IHttpClient {
         }.build()
 
     companion object {
-        private const val USER_AGENT = "AuroraPure/1.0.0 (Android; GPL-3.0-or-later)"
+        private const val TAG = "AuroraPure"
+        // The official dispenser validates the client identifier. Keep the identifier of the
+        // pinned Aurora Store protocol baseline while Aurora Pure uses its own package/version
+        // everywhere else.
+        private const val USER_AGENT = "com.aurora.store-4.8.3-75"
     }
 }

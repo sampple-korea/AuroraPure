@@ -8,6 +8,7 @@
 package com.aurora.pure.play
 
 import android.content.Context
+import android.util.Log
 import com.aurora.gplayapi.data.models.App
 import com.aurora.gplayapi.data.models.AuthData
 import com.aurora.gplayapi.data.models.PlayFile
@@ -38,6 +39,7 @@ class AuroraGateway(private val context: Context) {
         val existing = cachedAuth
         if (!force && existing != null && AuthHelper.isValid(existing)) return@withContext existing
 
+        Log.i(TAG, "Requesting anonymous credentials")
         val properties = DeviceProfile.properties(context)
         val body = properties.toJson().toString().toByteArray()
         val response = httpClient.postAuth(DISPENSER_URL, body)
@@ -52,6 +54,7 @@ class AuroraGateway(private val context: Context) {
             "Anonymous connection returned incomplete credentials"
         }
 
+        Log.i(TAG, "Anonymous credentials received; creating Google Play session")
         AuthHelper.using(httpClient).build(
             email = email,
             token = token,
@@ -64,6 +67,7 @@ class AuroraGateway(private val context: Context) {
                 "Google Play did not create a usable anonymous session"
             }
             cachedAuth = auth
+            Log.i(TAG, "Anonymous Google Play session is ready")
         }
     }
 
@@ -94,19 +98,20 @@ class AuroraGateway(private val context: Context) {
     }
 
     private fun resolvePlanWithAuth(packageName: String, auth: AuthData): DownloadPlan {
+        Log.i(TAG, "Resolving native delivery metadata for $packageName")
         val app = AppDetailsHelper(auth).using(httpClient).getAppByPackageName(packageName)
         require(app.packageName == packageName) { "Google Play returned a different package" }
         require(app.isFree) { "Paid apps are not supported by Aurora Pure" }
 
         val purchaseHelper = PurchaseHelper(auth).using(httpClient)
-        val primaryFiles = app.fileList.ifEmpty {
+        val primaryFiles = app.fileList.takeIf(::hasDownloadUrls) ?: run {
             purchaseHelper.purchase(app.packageName, app.versionCode, app.offerType)
         }
 
         val allFiles = mutableListOf<Pair<App, PlayFile>>()
         primaryFiles.forEach { allFiles += app to it }
         app.dependencies.dependentLibraries.forEach { dependency ->
-            val files = dependency.fileList.ifEmpty {
+            val files = dependency.fileList.takeIf(::hasDownloadUrls) ?: run {
                 purchaseHelper.purchase(
                     dependency.packageName,
                     dependency.versionCode,
@@ -125,7 +130,10 @@ class AuroraGateway(private val context: Context) {
         require(apkFiles.isNotEmpty()) { "Google Play returned no APK files for this device" }
 
         val artifacts = apkFiles.map { (owner, file) ->
-            require(isAllowedDeliveryUrl(file.url)) { "Rejected a non-Google or non-HTTPS delivery URL" }
+            if (!isAllowedDeliveryUrl(file.url)) {
+                Log.w(TAG, "Rejected delivery endpoint ${safeEndpoint(file.url)}")
+                throw IllegalArgumentException("Rejected a non-Google or non-HTTPS delivery URL")
+            }
             ArtifactPlan(
                 ownerPackage = owner.packageName,
                 ownerVersionCode = owner.versionCode,
@@ -176,6 +184,14 @@ class AuroraGateway(private val context: Context) {
         }
     }.getOrDefault(false)
 
+    private fun hasDownloadUrls(files: List<PlayFile>): Boolean =
+        files.isNotEmpty() && files.all { it.url.isNotBlank() }
+
+    private fun safeEndpoint(url: String): String = runCatching {
+        val uri = URI(url)
+        "${uri.scheme.orEmpty()}://${uri.host.orEmpty()}"
+    }.getOrDefault("<invalid URL>")
+
     private fun dispenserError(code: Int, serverMessage: String): String = when (code) {
         400 -> "Anonymous connection rejected the device profile"
         403 -> "Anonymous connection is unavailable for this network"
@@ -186,6 +202,7 @@ class AuroraGateway(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "AuroraPure"
         const val DISPENSER_URL = "https://auroraoss.com/api/auth"
 
         private val ALLOWED_GOOGLE_SUFFIXES = setOf(

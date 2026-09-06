@@ -110,6 +110,5 @@ dependencies {
     implementation("com.android.tools.build:apksig:9.2.0")
 
     testImplementation(libs.junit)
-    testImplementation(libs.google.truth)
     debugImplementation(libs.androidx.ui.tooling)
 }

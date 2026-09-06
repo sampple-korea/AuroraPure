@@ -11,6 +11,7 @@ package com.aurora.pure.download
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import com.android.apksig.ApkVerifier
 import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.DownloadOutcome
@@ -28,7 +29,9 @@ import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Request
 
@@ -60,7 +63,7 @@ class DownloadCoordinator(
         plan: DownloadPlan,
         onProgress: (downloadedBytes: Long, completedFiles: Int) -> Unit,
         onVerifying: () -> Unit
-    ): DownloadOutcome {
+    ): DownloadOutcome = withContext(Dispatchers.IO) {
         pauseRequested = false
         cancelRequested = false
         val taskRoot = records.taskDirectory(plan.id).apply { mkdirs() }
@@ -117,7 +120,7 @@ class DownloadCoordinator(
             onVerifying()
             val report = verify(plan, localArtifacts)
             require(report.isExportable) { "Downloaded APK verification failed: ${report.summary()}" }
-            return DownloadOutcome(plan, localArtifacts, report)
+            return@withContext DownloadOutcome(plan, localArtifacts, report)
         } finally {
             activeCall = null
             if (cancelRequested) records.deleteTaskFiles(plan.id)
@@ -245,11 +248,30 @@ class DownloadCoordinator(
                 item.file.absolutePath,
                 PackageManager.GET_META_DATA
             )
-            val packageState = if (
+            val manifestIdentity = runCatching { ApkManifestReader.read(item.file) }.getOrNull()
+            Log.i(
+                TAG,
+                "Parsed ${item.plan.type} ${item.plan.name}: " +
+                    "manifestPackage=${manifestIdentity?.packageName ?: "<unavailable>"}, " +
+                    "manifestVersion=${manifestIdentity?.versionCode ?: -1}, " +
+                    "split=${manifestIdentity?.splitName ?: "<base>"}, " +
+                    "platformPackage=${packageInfo?.packageName ?: "<unavailable>"}"
+            )
+            val expectedSplitName = item.plan.name.removeSuffix(".apk")
+            val manifestMatches = manifestIdentity != null &&
+                manifestIdentity.packageName == item.plan.ownerPackage &&
+                manifestIdentity.versionCode == item.plan.ownerVersionCode &&
+                when (item.plan.type) {
+                    "BASE" -> manifestIdentity.splitName == null
+                    "SPLIT" -> manifestIdentity.splitName == expectedSplitName
+                    else -> false
+                }
+            val platformMatches = item.plan.type != "BASE" || (
                 packageInfo != null &&
-                packageInfo.packageName == item.plan.ownerPackage &&
-                packageInfo.longVersionCode == item.plan.ownerVersionCode
-            ) {
+                    packageInfo.packageName == item.plan.ownerPackage &&
+                    packageInfo.longVersionCode == item.plan.ownerVersionCode
+                )
+            val packageState = if (manifestMatches && platformMatches) {
                 VerificationState.VERIFIED
             } else {
                 VerificationState.FAILED
@@ -329,6 +351,7 @@ class DownloadCoordinator(
     class CancelRequestedException : IOException("Download cancelled")
 
     companion object {
+        private const val TAG = "AuroraPure"
         private const val MAX_ATTEMPTS = 3
     }
 }

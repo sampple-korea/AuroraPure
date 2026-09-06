@@ -7,6 +7,7 @@ package com.aurora.pure
 
 import android.app.Application
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.pure.data.AppSummary
@@ -106,10 +107,16 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         val selected = _uiState.value.selected ?: return
         if (!selected.isFree || _uiState.value.busy) return
         viewModelScope.launch {
+            Log.i(TAG, "Preparing delivery for ${selected.packageName}")
             setBusy(true)
             _uiState.update { it.copy(connection = ConnectionState.CONNECTING) }
             runCatching { gateway.resolvePlan(selected.packageName) }
                 .onSuccess { plan ->
+                    Log.i(
+                        TAG,
+                        "Delivery resolved for ${plan.packageName}: versionCode=${plan.versionCode}, " +
+                            "apkCount=${plan.artifacts.size}, bytes=${plan.totalBytes}"
+                    )
                     _uiState.update { it.copy(connection = ConnectionState.CONNECTED) }
                     val changed = plan.versionCode != selected.versionCode ||
                         (selected.size > 0 && plan.totalBytes > 0 && selected.size != plan.totalBytes)
@@ -129,6 +136,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure {
+                    Log.w(
+                        TAG,
+                        "Delivery resolution failed (${it.javaClass.simpleName}): ${safeMessage(it)}"
+                    )
                     _uiState.update { state -> state.copy(connection = ConnectionState.FAILED) }
                     showError(it)
                 }
@@ -263,6 +274,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             updateRecord(record.id) { it.copy(status = TaskStatus.PAUSED, error = "") }
             throw exception
         } catch (exception: Exception) {
+            Log.w(
+                TAG,
+                "Download task failed (${exception.javaClass.simpleName}): ${safeMessage(exception)}"
+            )
             updateRecord(record.id) {
                 it.copy(status = TaskStatus.FAILED, error = safeMessage(exception))
             }
@@ -486,6 +501,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         throwable.message?.takeIf(String::isNotBlank)?.take(240) ?: "The operation failed"
 
     companion object {
+        private const val TAG = "AuroraPure"
         private val PACKAGE_PATTERN = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
         fun parsePackageName(input: String): String? {
