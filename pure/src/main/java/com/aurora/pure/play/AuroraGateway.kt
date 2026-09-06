@@ -163,6 +163,7 @@ class AuroraGateway(private val context: Context) {
 
         val latestVersion = groups.maxOf(DeliveryVariant::versionCode)
         val latestGroups = groups.filter { it.versionCode == latestVersion }
+        val discoveredArchitectures = snapshots.map { it.profile.variant }.toSet()
         val latestArtifacts = snapshots
             .filter { it.resolution.app.versionCode == latestVersion }
             .flatMap { it.resolution.artifacts }
@@ -186,7 +187,7 @@ class AuroraGateway(private val context: Context) {
         if (aggregate == null) {
             groups.map { variant ->
                 if (architectureChoice == ArchitectureChoice.UNIVERSAL &&
-                    variant.architectures.toSet() == ArchitectureVariant.entries.toSet()
+                    variant.architectures.toSet() == discoveredArchitectures
                 ) {
                     variant.copy(aggregate = true, universal = true)
                 } else {
@@ -651,6 +652,7 @@ class AuroraGateway(private val context: Context) {
         generateSequence<Throwable>(exception) { it.cause }.any { cause ->
             cause.javaClass.name.endsWith("InternalException\$AppNotSupported") ||
                 cause.javaClass.name.endsWith("InternalException\$EmptyDownloads") ||
+                (cause is PureHttpClient.ProtocolHttpException && cause.status == 400) ||
                 cause.message == "Google Play returned no APK files for this device"
         }
 

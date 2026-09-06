@@ -100,6 +100,7 @@ class PlayGateway(
             )
         val latestVersion = groups.maxOf(DeliveryVariant::versionCode)
         val latestGroups = groups.filter { it.versionCode == latestVersion }
+        val discoveredArchitectures = snapshots.map { it.profile.abi.label }.toSet()
         val latestArtifacts = snapshots
             .filter { it.resolution.app.versionCode == latestVersion }
             .flatMap { it.resolution.artifacts }
@@ -123,7 +124,7 @@ class PlayGateway(
         if (aggregate == null) {
             groups.map { variant ->
                 if (architecture == ArchitectureMode.UNIVERSAL &&
-                    variant.architectures.toSet() == architecture.variants.map(AbiVariant::label).toSet()
+                    variant.architectures.toSet() == discoveredArchitectures
                 ) {
                     variant.copy(aggregate = true, universal = true)
                 } else {
@@ -489,6 +490,7 @@ class PlayGateway(
         generateSequence<Throwable>(error) { it.cause }.any { cause ->
             cause.javaClass.name.endsWith("InternalException\$AppNotSupported") ||
                 cause.javaClass.name.endsWith("InternalException\$EmptyDownloads") ||
+                (cause is CliHttpClient.ProtocolHttpException && cause.status == 400) ||
                 cause.message in setOf(
                     "Google Play returned no APK files",
                     "Google Play returned no base APK"
