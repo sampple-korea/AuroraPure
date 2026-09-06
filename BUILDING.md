@@ -33,6 +33,15 @@ AURORA_PURE_APK_FIXTURE_VERSION=12345 \
   ./gradlew :pure:testDebugUnitTest
 ```
 
+base APK의 `res/xml/splits*.xml` 언어 선언 파서까지 실제 파일로 검사하려면 다음 변수를 함께 또는 별도로 지정합니다.
+
+```bash
+AURORA_PURE_BASE_APK=/absolute/path/to/base.apk \
+  ./gradlew :pure:testDebugUnitTest
+```
+
+저장소에는 제3자 APK 픽스처를 커밋하지 않습니다. CI 기본 테스트는 ZIP Range 인덱스와 다운로드 정책을 합성 데이터로 검증하고, 실제 APK 통합 시험은 릴리스 담당자가 로컬에서 실행합니다.
+
 ## 릴리스 서명
 
 `pure/signing.properties` 파일을 로컬에 만들면 릴리스 빌드가 해당 키로 서명됩니다. 이 파일과 키 저장소는 Git에서 제외됩니다.

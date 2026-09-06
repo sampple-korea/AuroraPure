@@ -12,15 +12,15 @@ Google Play가 **현재 익명 세션과 현재 기기 조건에 제공하는 �
 
 <p align="center">
   <img src="docs/screenshots/search-ko.png" width="30%" alt="한국어 검색 화면">
-  <img src="docs/screenshots/plan-ko.png" width="30%" alt="한국어 다운로드 계획 확인 화면">
+  <img src="docs/screenshots/plan-ko.png" width="30%" alt="한국어 모든 언어팩과 CPU 아키텍처 선택 화면">
   <img src="docs/screenshots/completed-ko.png" width="30%" alt="한국어 다운로드 검증 완료 화면">
 </p>
 
-위 이미지는 현재 릴리스 APK를 Android 16에서 직접 실행해 캡처한 화면입니다.
+위 이미지는 1.1.0 릴리스 후보를 Android 16에서 직접 실행해 캡처한 검색, 모든 언어팩·CPU 아키텍처 선택, 다운로드 검증 완료 화면입니다.
 
 ## 다운로드
 
-[GitHub Releases](https://github.com/sampple-korea/AuroraPure/releases/latest)에서 `AuroraPure-1.0.0.apk`와 `SHA256SUMS.txt`를 받으세요. Android 10(API 29) 이상을 지원합니다.
+[GitHub Releases](https://github.com/sampple-korea/AuroraPure/releases/latest)에서 `AuroraPure-1.1.0.apk`와 `SHA256SUMS.txt`를 받으세요. Android 10(API 29) 이상을 지원합니다.
 
 Aurora Pure는 APK를 **다운로드만** 합니다. 내려받은 앱을 설치하려면 Android 파일 관리자 또는 분할 APK를 지원하는 별도 도구를 사용해야 합니다.
 
@@ -30,6 +30,8 @@ Aurora Pure는 APK를 **다운로드만** 합니다. 내려받은 앱을 설치�
 - 앱 아이콘, 개발자, 설명과 제공 버전 표시
 - 개인 Google 계정 입력 없는 익명 세션
 - 다운로드 직전 제공 버전과 APK 파일 구성을 다시 조회
+- 앱의 `splits*.xml` 선언을 읽어 현재 제공 모듈의 **모든 언어 APK를 기본 포함**
+- **64 + 32비트(기본), 64비트, 32비트** CPU 제공 프로파일 선택
 - 단일 APK와 기기별 분할 APK, 확인 가능한 공유 라이브러리 APK 보존
 - 다운로드 일시정지·안전한 HTTP Range 이어받기·취소·재시도
 - APK 해시, 서명, 패키지명, 버전, 분할 구성 검증
@@ -66,6 +68,29 @@ Aurora Pure의 최신 버전은 전 세계에서 가장 큰 버전 번호가 아
 
 ZIP은 설치 파일 형식 호환성을 약속하는 `.apks`가 아니라 원본 보관용 묶음입니다. 실행 후 받는 Play Asset Delivery 데이터, 계정 데이터, 게임 리소스의 완전한 백업은 범위에 포함하지 않습니다.
 
+64 + 32비트를 선택하면 서로 다른 Google Play 제공 프로파일을 따로 조회합니다. 두 결과는 다음처럼 섞이지 않은 독립 세트로 저장됩니다.
+
+```text
+com.example.app_v12345_arm64-v8a-armeabi-v7a_all-languages.zip
+├── variants/
+│   ├── 64bit/
+│   │   ├── base.apk
+│   │   └── config.*.apk
+│   └── 32bit/
+│       ├── base.apk
+│       └── config.*.apk
+├── download-info.json
+└── SHA256SUMS.txt
+```
+
+두 폴더의 APK를 한 설치 세션에 섞어서는 안 됩니다. 같은 APK가 양쪽 프로파일에 제공되면 네트워크에서는 안전하게 재사용하되, ZIP에는 각 완전한 세트를 독립적으로 기록합니다.
+
+### “모든 언어팩”의 정확한 범위
+
+Aurora Pure는 base APK 안의 bundletool 메타데이터(`res/xml/splits*.xml`)를 읽고, **선택한 CPU 제공 프로파일에서 현재 전달되는 모듈이 선언한 모든 비어 있지 않은 언어 split**을 Google Play에 요청합니다. 언어가 base/master APK에 이미 포함됐다는 빈 split 선언도 포함 상태로 기록합니다. 하나라도 확보하지 못하면 불완전한 묶음을 완료로 내보내지 않습니다.
+
+이는 해당 앱과 현재 제공 결과에 선언된 언어 전체를 뜻하며, 세상에 존재하는 모든 언어·아직 전달되지 않은 온디맨드 모듈·실행 후 받는 자산까지 생성하거나 보장한다는 뜻은 아닙니다.
+
 ### 전경에서만 다운로드
 
 앱 화면이 완전히 보이지 않으면 진행 중인 네트워크 전송을 일시정지합니다. 앱으로 돌아와 **이어받기**를 누르면 저장된 작업 계획과 부분 파일을 확인한 후 계속합니다. 화면 회전이나 Aurora Pure 내부 화면 이동은 같은 작업을 중복 시작하지 않습니다.
@@ -88,7 +113,7 @@ ZIP은 설치 파일 형식 호환성을 약속하는 `.apks`가 아니라 원�
 
 ## 빌드와 검증
 
-재현 가능한 개발 환경과 명령은 [BUILDING.md](BUILDING.md)에 있습니다. 모든 푸시에서 단위 테스트, Android Lint, R8 축소 릴리스 빌드와 다운로드 전용 소스 경계 검사를 수행합니다. 실제 Google Play APK 픽스처 통합 검증은 릴리스 전에 별도로 실행합니다.
+재현 가능한 개발 환경과 명령은 [BUILDING.md](BUILDING.md)에 있습니다. 모든 푸시에서 단위 테스트, Android Lint, R8 축소 릴리스 빌드와 다운로드 전용 소스 경계 검사를 수행합니다. 실제 Google Play APK 픽스처 통합 검증은 릴리스 전에 별도로 실행합니다. 1.1.0 릴리스 후보는 Android 16에서 Google OTP의 64/32비트 프로파일을 함께 조회해 선언 로케일 82개, 언어 APK 164개를 포함한 총 168개 APK를 내려받았고, ZIP 170개 엔트리와 모든 SHA-256을 다시 대조했습니다.
 
 ```bash
 ./gradlew --no-daemon --no-configuration-cache \
@@ -107,4 +132,4 @@ Google Play의 비공식 API와 외부 익명 인증 서비스 상태에 따라 
 
 ---
 
-**English:** Aurora Pure is a Korean-first, download-only Aurora Store fork. It saves the latest original APK delivery available to the current anonymous session and device, preserves split APKs in a ZIP, and never installs apps or manages updates.
+**English:** Aurora Pure is a Korean-first, download-only Aurora Store fork. It fetches every language split advertised for the currently delivered modules, lets you choose 64-bit, 32-bit, or both delivery profiles, preserves each complete APK set in a ZIP, and never installs apps or manages updates.
