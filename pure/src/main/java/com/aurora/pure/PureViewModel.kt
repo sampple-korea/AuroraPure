@@ -8,6 +8,7 @@ package com.aurora.pure
 import android.app.Application
 import android.os.SystemClock
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.pure.data.AppSummary
@@ -22,6 +23,9 @@ import com.aurora.pure.download.DownloadCoordinator
 import com.aurora.pure.play.AuroraGateway
 import com.aurora.pure.storage.ExportRepository
 import com.aurora.pure.storage.RecordRepository
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +83,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             results = results,
-                            message = if (results.isEmpty()) "No matching apps were found" else ""
+                            message = if (results.isEmpty()) string(R.string.no_results) else ""
                         )
                     }
                 }
@@ -121,21 +125,22 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                             "apkCount=${plan.artifacts.size}, bytes=${plan.totalBytes}"
                     )
                     _uiState.update { it.copy(connection = ConnectionState.CONNECTED) }
-                    val changed = plan.versionCode != selected.versionCode ||
+                    val changed = (selected.versionCode > 0 && plan.versionCode != selected.versionCode) ||
                         (selected.size > 0 && plan.totalBytes > 0 && selected.size != plan.totalBytes)
-                    if (changed) {
-                        _uiState.update {
-                            it.copy(
-                                confirmation = DownloadConfirmation(
-                                    previous = selected,
-                                    plan = plan,
-                                    reason = "${selected.versionName} (${selected.versionCode}) → " +
+                    _uiState.update {
+                        it.copy(
+                            confirmation = DownloadConfirmation(
+                                previous = selected,
+                                plan = plan,
+                                reason = if (changed) {
+                                    "${selected.versionName} (${selected.versionCode}) → " +
                                         "${plan.versionName} (${plan.versionCode})"
-                                )
+                                } else {
+                                    ""
+                                },
+                                changed = changed
                             )
-                        }
-                    } else {
-                        acceptPlan(plan)
+                        )
                     }
                 }
                 .onFailure {
@@ -182,7 +187,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (existing != null && recordRepository.outputExists(existing)) {
             _uiState.update {
-                it.copy(screen = Screen.DOWNLOADS, message = "The same delivered APK files are already saved")
+                it.copy(screen = Screen.DOWNLOADS, message = string(R.string.message_same_saved))
             }
             return
         }
@@ -190,7 +195,9 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             it.planFingerprint == plan.fingerprint() && it.status.isActive
         }
         if (duplicate != null) {
-            _uiState.update { it.copy(screen = Screen.DOWNLOADS, message = "This download is already queued") }
+            _uiState.update {
+                it.copy(screen = Screen.DOWNLOADS, message = string(R.string.message_already_queued))
+            }
             return
         }
 
@@ -219,7 +226,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 updateRecord(record.id) {
                     it.copy(
                         status = TaskStatus.VERSION_CHANGED,
-                        error = "The delivered version or APK set changed; review it before resuming"
+                        error = string(R.string.message_delivery_changed)
                     )
                 }
                 return
@@ -293,7 +300,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 "Download task failed (${exception.javaClass.simpleName}): ${safeMessage(exception)}"
             )
             updateRecord(record.id) {
-                it.copy(status = TaskStatus.FAILED, error = safeMessage(exception))
+                it.copy(status = TaskStatus.FAILED, error = userMessage(exception))
             }
         } finally {
             activeTaskId = null
@@ -322,7 +329,8 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                                     previous = record.toSummary(),
                                     plan = plan,
                                     reason = "${record.versionName} (${record.versionCode}) → " +
-                                        "${plan.versionName} (${plan.versionCode})"
+                                        "${plan.versionName} (${plan.versionCode})",
+                                    changed = true
                                 )
                             )
                         }
@@ -363,7 +371,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                         outputUri = "",
                         outputName = "",
                         outputSize = 0,
-                        error = if (deleted) "Saved file deleted" else "Saved file could not be found"
+                        error = if (deleted) {
+                            string(R.string.message_saved_deleted)
+                        } else {
+                            string(R.string.file_missing)
+                        }
                     )
                 }
             }
@@ -373,7 +385,14 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun verifyOutput(record: DownloadRecord): Boolean {
         val exists = recordRepository.outputExists(record)
         if (!exists && record.outputUri.isNotBlank()) {
-            updateRecord(record.id) { it.copy(error = "Saved file could not be found") }
+            updateRecord(record.id) {
+                it.copy(
+                    outputUri = "",
+                    outputName = "",
+                    outputSize = 0,
+                    error = string(R.string.file_missing)
+                )
+            }
         }
         return exists
     }
@@ -411,14 +430,16 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCustomFolder(uri: String) {
         recordRepository.customFolderUri = uri
-        _uiState.update { it.copy(customFolderUri = uri, message = "Save location updated") }
+        _uiState.update {
+            it.copy(customFolderUri = uri, message = string(R.string.message_save_location_updated))
+        }
     }
 
     fun useDefaultFolder() = setCustomFolder("")
 
     fun clearTemporaryFiles() {
         if (activeJob != null) {
-            _uiState.update { it.copy(message = "Pause or cancel the active download first") }
+            _uiState.update { it.copy(message = string(R.string.message_active_download_first)) }
             return
         }
         viewModelScope.launch {
@@ -428,7 +449,13 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 filesCleared
             }
             _uiState.update {
-                it.copy(message = if (success) "Temporary files cleared" else "Some temporary files could not be cleared")
+                it.copy(
+                    message = if (success) {
+                        string(R.string.message_temporary_cleared)
+                    } else {
+                        string(R.string.message_temporary_partial)
+                    }
+                )
             }
         }
     }
@@ -439,7 +466,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         }
         val removed = currentRecords().filterNot { it in keep }
         publishRecords(keep)
-        _uiState.update { it.copy(message = "Download history cleared; saved files were kept") }
+        _uiState.update { it.copy(message = string(R.string.message_history_cleared)) }
         viewModelScope.launch(Dispatchers.IO) {
             removed.forEach { recordRepository.deleteTaskFiles(it.id) }
         }
@@ -452,7 +479,14 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(connection = ConnectionState.CONNECTING) }
             gateway.disconnect()
             runCatching { gateway.connect(force = true) }
-                .onSuccess { _uiState.update { state -> state.copy(connection = ConnectionState.CONNECTED, message = "Anonymous connection ready") } }
+                .onSuccess {
+                    _uiState.update { state ->
+                        state.copy(
+                            connection = ConnectionState.CONNECTED,
+                            message = string(R.string.message_connection_ready)
+                        )
+                    }
+                }
                 .onFailure {
                     _uiState.update { state -> state.copy(connection = ConnectionState.FAILED) }
                     showError(it)
@@ -526,15 +560,80 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(busy = value) }
     }
 
+    private fun string(@StringRes id: Int): String = getApplication<Application>().getString(id)
+
     private fun showError(throwable: Throwable) {
-        _uiState.update { it.copy(message = safeMessage(throwable)) }
+        _uiState.update { it.copy(message = userMessage(throwable)) }
+    }
+
+    private fun userMessage(throwable: Throwable): String {
+        val causes = generateSequence(throwable) { it.cause }.toList()
+        if (causes.any { it is UnknownHostException || it is SocketTimeoutException || it is SocketException }) {
+            return string(R.string.error_network)
+        }
+        val raw = causes.mapNotNull { it.message }.firstOrNull(String::isNotBlank)
+            ?: return string(R.string.message_operation_failed)
+        return when {
+            raw == "Anonymous connection rejected the device profile" ->
+                string(R.string.error_anonymous_profile)
+            raw == "Anonymous connection is unavailable for this network" ->
+                string(R.string.error_anonymous_unavailable)
+            raw == "Anonymous connection service was not found" ->
+                string(R.string.error_anonymous_not_found)
+            raw.startsWith("Anonymous connection is rate limited") ->
+                string(R.string.error_rate_limited)
+            raw == "Anonymous connection service is under maintenance" ->
+                string(R.string.error_maintenance)
+            raw == "Anonymous connection returned incomplete credentials" ->
+                string(R.string.error_incomplete_credentials)
+            raw == "Google Play did not create a usable anonymous session" ->
+                string(R.string.error_session_unavailable)
+            raw == "Google Play returned a different package" ->
+                string(R.string.error_wrong_package)
+            raw == "Paid apps are not supported by Aurora Pure" ->
+                string(R.string.paid_unavailable)
+            raw == "Google Play returned no APK files for this device" ->
+                string(R.string.error_no_apk)
+            raw == "Rejected a non-Google or non-HTTPS delivery URL" ||
+                raw == "Download URL is outside the approved Google delivery hosts" ||
+                raw == "Download redirect left the approved Google delivery hosts" ->
+                string(R.string.error_delivery_security)
+            raw == "Google Play returned conflicting APK file names" ->
+                string(R.string.error_conflicting_files)
+            raw == "Not enough temporary storage for this download" ->
+                string(R.string.error_temporary_space)
+            raw == "Not enough space to save the completed file" ->
+                string(R.string.error_output_space)
+            raw.startsWith("Downloaded APK verification failed") ->
+                string(R.string.error_apk_verification)
+            raw.startsWith("Server rejected a safe resume") ->
+                string(R.string.error_safe_resume)
+            raw.startsWith("Size mismatch for ") ->
+                string(R.string.error_size_mismatch)
+            raw.startsWith("Could not finalize ") && raw != "Could not finalize the exported file" ->
+                string(R.string.error_finalize_download)
+            raw == "The selected folder is no longer available" ->
+                string(R.string.error_folder_unavailable)
+            raw == "The selected folder is read-only" ->
+                string(R.string.error_folder_read_only)
+            raw == "Android could not create the download file" ||
+                raw == "Could not create a file in the selected folder" ->
+                string(R.string.error_create_output)
+            raw == "Could not finalize the exported file" ->
+                string(R.string.error_finalize_output)
+            raw.startsWith("Download failed (HTTP ") -> {
+                val status = Regex("HTTP (\\d+)").find(raw)?.groupValues?.getOrNull(1) ?: "?"
+                getApplication<Application>().getString(R.string.error_http, status)
+            }
+            else -> string(R.string.message_operation_failed)
+        }
     }
 
     private fun safeMessage(throwable: Throwable): String {
         val raw = generateSequence(throwable) { it.cause }
             .mapNotNull { it.message }
             .firstOrNull(String::isNotBlank)
-            ?: return "The operation failed"
+            ?: return string(R.string.message_operation_failed)
         return raw
             .replace(URL_PATTERN, "[redacted URL]")
             .replace(EMAIL_PATTERN, "[redacted email]")

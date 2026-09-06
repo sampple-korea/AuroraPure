@@ -7,6 +7,7 @@ package com.aurora.pure.storage
 
 import android.content.Context
 import android.net.Uri
+import com.aurora.pure.R
 import com.aurora.pure.data.DownloadRecord
 import com.aurora.pure.data.TaskStatus
 import org.json.JSONArray
@@ -45,7 +46,10 @@ class RecordRepository(private val context: Context) {
                     TaskStatus.EXPORTING
                 )
             ) {
-                record.copy(status = TaskStatus.PAUSED, error = "The previous session ended before completion")
+                record.copy(
+                    status = TaskStatus.PAUSED,
+                    error = context.getString(R.string.message_previous_session_ended)
+                )
             } else {
                 record
             }

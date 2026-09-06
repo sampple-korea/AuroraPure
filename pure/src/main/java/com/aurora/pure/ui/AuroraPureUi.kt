@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -275,7 +276,7 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
                     DetailRow(stringResource(R.string.save_format), stringResource(R.string.single_apk) + " / " + stringResource(R.string.split_zip))
                     DetailRow(stringResource(R.string.current_device), android.os.Build.MODEL)
                     DetailRow(stringResource(R.string.checked_at), formatDate(app.checkedAt))
-                    if (app.size > 0) DetailRow("Size", formatBytes(app.size))
+                    if (app.size > 0) DetailRow(stringResource(R.string.size), formatBytes(app.size))
                 }
             }
         }
@@ -346,21 +347,72 @@ private fun DownloadCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(record.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(record.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("${record.versionName} (${record.versionCode}) · ${statusText(record.status)}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                stringResource(
+                    R.string.record_summary,
+                    record.versionName,
+                    record.versionCode.toString(),
+                    statusText(record.status)
+                ),
+                style = MaterialTheme.typography.bodyMedium
+            )
             if (record.status in setOf(TaskStatus.DOWNLOADING, TaskStatus.PAUSED, TaskStatus.VERIFYING, TaskStatus.EXPORTING)) {
                 LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 Text(
-                    "${formatBytes(record.downloadedBytes)} / ${formatBytes(record.totalBytes)} · ${record.completedFiles}/${record.totalFiles}",
+                    stringResource(
+                        R.string.progress_summary,
+                        formatBytes(record.downloadedBytes),
+                        formatBytes(record.totalBytes),
+                        record.completedFiles,
+                        record.totalFiles
+                    ),
                     style = MaterialTheme.typography.labelMedium
                 )
             }
-            if (record.status == TaskStatus.VERIFYING) Text("Verifying downloaded APK files…")
-            if (record.status == TaskStatus.EXPORTING) Text("Writing the final saved file…")
+            if (record.status == TaskStatus.VERIFYING) Text(stringResource(R.string.verifying_files))
+            if (record.status == TaskStatus.EXPORTING) Text(stringResource(R.string.exporting_file))
             if (record.verification.isNotBlank()) {
-                Text("${stringResource(R.string.verification)}: ${record.verification}", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(
+                        R.string.verification_value,
+                        stringResource(R.string.verification),
+                        verificationText(record.verification)
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (record.checkedAt > 0) {
+                Text(
+                    stringResource(
+                        R.string.verification_value,
+                        stringResource(R.string.checked_at),
+                        formatDate(record.checkedAt)
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (record.completedAt > 0) {
+                Text(
+                    stringResource(
+                        R.string.verification_value,
+                        stringResource(R.string.completed_at),
+                        formatDate(record.completedAt)
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             if (record.outputName.isNotBlank()) {
                 Text(record.outputName, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (record.outputSize > 0) {
+                Text(
+                    stringResource(
+                        R.string.verification_value,
+                        stringResource(R.string.saved_size),
+                        formatBytes(record.outputSize)
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             if (record.hasAdditionalData) {
                 Text(stringResource(R.string.additional_data_warning), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
@@ -385,9 +437,13 @@ private fun DownloadCard(
                     }
                 }
                 TaskStatus.COMPLETED -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onShare(record) }) { Text(stringResource(R.string.share)) }
-                        OutlinedButton(onClick = { viewModel.deleteOutput(record) }) { Text(stringResource(R.string.delete_file)) }
+                    if (record.outputUri.isNotBlank()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onShare(record) }) { Text(stringResource(R.string.share)) }
+                            OutlinedButton(onClick = { viewModel.deleteOutput(record) }) {
+                                Text(stringResource(R.string.delete_file))
+                            }
+                        }
                     }
                     TextButton(onClick = { viewModel.removeRecord(record) }) { Text(stringResource(R.string.remove_record)) }
                 }
@@ -465,11 +521,24 @@ private fun AboutScreen() {
         Text(stringResource(R.string.privacy_text), style = MaterialTheme.typography.bodyLarge)
         Text(stringResource(R.string.license_text), style = MaterialTheme.typography.bodyLarge)
         HorizontalDivider()
-        Text("Aurora Pure ${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
-        Text("Based on Aurora Store ${BuildConfig.UPSTREAM_VERSION}\nUpstream commit ${BuildConfig.UPSTREAM_COMMIT}", style = MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick = { context.openUrl("https://github.com/sampple-korea/AuroraPure") }) { Text("Corresponding source code") }
-        TextButton(onClick = { context.openUrl("https://gitlab.com/AuroraOSS/AuroraStore") }) { Text("Aurora Store upstream") }
-        TextButton(onClick = { context.openUrl("https://www.gnu.org/licenses/gpl-3.0.html") }) { Text("GNU GPL v3") }
+        Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME), fontWeight = FontWeight.Bold)
+        Text(
+            stringResource(
+                R.string.based_on_upstream,
+                BuildConfig.UPSTREAM_VERSION,
+                BuildConfig.UPSTREAM_COMMIT
+            ),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        OutlinedButton(onClick = { context.openUrl("https://github.com/sampple-korea/AuroraPure") }) {
+            Text(stringResource(R.string.corresponding_source))
+        }
+        TextButton(onClick = { context.openUrl("https://gitlab.com/AuroraOSS/AuroraStore") }) {
+            Text(stringResource(R.string.aurora_upstream))
+        }
+        TextButton(onClick = { context.openUrl("https://www.gnu.org/licenses/gpl-3.0.html") }) {
+            Text(stringResource(R.string.gpl_license))
+        }
     }
 }
 
@@ -481,13 +550,83 @@ private fun VersionConfirmation(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.version_changed_title)) },
+        title = {
+            Text(
+                stringResource(
+                    if (confirmation.changed) R.string.version_changed_title else R.string.plan_review_title
+                )
+            )
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.version_changed_body))
-                Text(confirmation.reason, fontWeight = FontWeight.Bold)
-                Text("${confirmation.plan.artifacts.size} APK · ${formatBytes(confirmation.plan.totalBytes)}")
-                Text(confirmation.plan.deviceDescription, style = MaterialTheme.typography.bodySmall)
+            Column(
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    stringResource(
+                        if (confirmation.changed) {
+                            R.string.version_changed_body
+                        } else {
+                            R.string.plan_review_body
+                        }
+                    )
+                )
+                if (confirmation.reason.isNotBlank()) {
+                    Text(confirmation.reason, fontWeight = FontWeight.Bold)
+                }
+                DetailRow(
+                    stringResource(R.string.version),
+                    "${confirmation.plan.versionName} (${confirmation.plan.versionCode})"
+                )
+                DetailRow(stringResource(R.string.source), stringResource(R.string.google_play_delivery))
+                DetailRow(
+                    stringResource(R.string.delivery_condition),
+                    stringResource(R.string.current_condition_latest)
+                )
+                DetailRow(
+                    stringResource(R.string.distribution_track),
+                    stringResource(R.string.track_unknown)
+                )
+                DetailRow(stringResource(R.string.current_device), confirmation.plan.deviceDescription)
+                DetailRow(stringResource(R.string.checked_at), formatDate(confirmation.plan.checkedAt))
+                DetailRow(
+                    stringResource(R.string.file_layout),
+                    stringResource(
+                        R.string.apk_count_size,
+                        confirmation.plan.artifacts.size,
+                        formatBytes(confirmation.plan.totalBytes)
+                    )
+                )
+                DetailRow(
+                    stringResource(R.string.save_format),
+                    stringResource(
+                        if (confirmation.plan.isSingleApk) R.string.single_apk else R.string.split_zip
+                    )
+                )
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                Text(stringResource(R.string.file_list), fontWeight = FontWeight.Bold)
+                confirmation.plan.artifacts.forEach { artifact ->
+                    Column {
+                        Text(artifact.relativePath, style = MaterialTheme.typography.bodyMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(formatBytes(artifact.size), style = MaterialTheme.typography.bodySmall)
+                            if (artifact.isDependency) {
+                                Text(
+                                    stringResource(R.string.dependency_artifact, artifact.ownerPackage),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                    }
+                }
+                if (confirmation.plan.hasAdditionalData) {
+                    Text(
+                        stringResource(R.string.additional_data_warning),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         },
         confirmButton = { Button(onClick = onConfirm) { Text(stringResource(R.string.continue_action)) } },
@@ -497,34 +636,62 @@ private fun VersionConfirmation(
 
 @Composable
 private fun statusText(status: TaskStatus): String {
-    val korean = Locale.getDefault().language == "ko"
-    return if (korean) when (status) {
-        TaskStatus.QUEUED -> "대기"
-        TaskStatus.CHECKING -> "제공 버전 확인"
-        TaskStatus.DOWNLOADING -> "파일 받기"
-        TaskStatus.PAUSED -> "일시정지"
-        TaskStatus.VERIFYING -> "파일 검증"
-        TaskStatus.EXPORTING -> "저장 위치로 내보내기"
-        TaskStatus.COMPLETED -> "완료"
-        TaskStatus.FAILED -> "실패"
-        TaskStatus.CANCELLED -> "취소됨"
-        TaskStatus.VERSION_CHANGED -> "제공 버전 변경"
-    } else status.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+    val resource = when (status) {
+        TaskStatus.QUEUED -> R.string.status_queued
+        TaskStatus.CHECKING -> R.string.status_checking
+        TaskStatus.DOWNLOADING -> R.string.status_downloading
+        TaskStatus.PAUSED -> R.string.status_paused
+        TaskStatus.VERIFYING -> R.string.status_verifying
+        TaskStatus.EXPORTING -> R.string.status_exporting
+        TaskStatus.COMPLETED -> R.string.status_completed
+        TaskStatus.FAILED -> R.string.status_failed
+        TaskStatus.CANCELLED -> R.string.status_cancelled
+        TaskStatus.VERSION_CHANGED -> R.string.status_version_changed
+    }
+    return stringResource(resource)
 }
 
 @Composable
 private fun connectionText(state: ConnectionState): String {
-    val korean = Locale.getDefault().language == "ko"
-    return if (korean) when (state) {
-        ConnectionState.IDLE -> "필요할 때 연결합니다"
-        ConnectionState.CONNECTING -> "연결 중…"
-        ConnectionState.CONNECTED -> "연결됨"
-        ConnectionState.FAILED -> "연결 실패"
-    } else when (state) {
-        ConnectionState.IDLE -> "Connects when needed"
-        ConnectionState.CONNECTING -> "Connecting…"
-        ConnectionState.CONNECTED -> "Connected"
-        ConnectionState.FAILED -> "Connection failed"
+    val resource = when (state) {
+        ConnectionState.IDLE -> R.string.connection_idle
+        ConnectionState.CONNECTING -> R.string.connection_connecting
+        ConnectionState.CONNECTED -> R.string.connection_connected
+        ConnectionState.FAILED -> R.string.connection_failed
+    }
+    return stringResource(resource)
+}
+
+@Composable
+private fun verificationText(summary: String): String {
+    val states = mapOf(
+        "verified" to stringResource(R.string.verification_verified),
+        "failed" to stringResource(R.string.verification_failed),
+        "unavailable" to stringResource(R.string.verification_unavailable)
+    )
+    val labels = mapOf(
+        "integrity" to stringResource(R.string.verification_integrity),
+        "signatures" to stringResource(R.string.verification_signatures),
+        "package" to stringResource(R.string.verification_package)
+    )
+    val limitations = mapOf(
+        "Google Play supplied no reference hash for one or more APKs" to
+            stringResource(R.string.limitation_no_reference_hash),
+        "APK signature verification was unavailable" to
+            stringResource(R.string.limitation_signature_unavailable),
+        "The delivery references non-APK data" to
+            stringResource(R.string.limitation_non_apk_data)
+    )
+    val limitationsLabel = stringResource(R.string.verification_limitations)
+    return summary.split(", ").joinToString(" · ") { component ->
+        val key = component.substringBefore('=')
+        val value = component.substringAfter('=', "")
+        if (key == "limitations") {
+            val translated = value.split("; ").joinToString("; ") { limitations[it] ?: it }
+            "$limitationsLabel: $translated"
+        } else {
+            "${labels[key] ?: key}: ${states[value] ?: value}"
+        }
     }
 }
 

@@ -191,7 +191,8 @@ data class DownloadOutcome(
 data class DownloadConfirmation(
     val previous: AppSummary,
     val plan: DownloadPlan,
-    val reason: String
+    val reason: String,
+    val changed: Boolean
 )
 
 data class PureUiState(
