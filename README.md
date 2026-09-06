@@ -13,9 +13,10 @@ Aurora Pure is a download-only Android app and desktop CLI for saving APK files 
 ## Current interface
 
 <p align="center">
-  <img src="docs/screenshots/search-en.png" width="30%" alt="Aurora Pure English search screen">
-  <img src="docs/screenshots/variants-en.png" width="30%" alt="Selectable real ABI, Android, and screen-DPI variants">
-  <img src="docs/screenshots/cli-en.png" width="30%" alt="Aurora Pure interactive desktop CLI">
+  <img src="docs/screenshots/search-en.png" width="23%" alt="Aurora Pure English search screen">
+  <img src="docs/screenshots/discovery-en.png" width="23%" alt="Live ABI, DPI, and Android discovery progress">
+  <img src="docs/screenshots/variants-en.png" width="23%" alt="Unselected results grouped by newest version">
+  <img src="docs/screenshots/cli-en.png" width="23%" alt="Aurora Pure interactive desktop CLI">
 </p>
 
 The Android screenshots and CLI capture above are generated from the 1.2.1 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.

@@ -13,9 +13,10 @@ Aurora Pure는 Google Play가 제공하는 APK 파일을 저장하는 다운로�
 ## 최신 화면
 
 <p align="center">
-  <img src="docs/screenshots/search-en.png" width="30%" alt="Aurora Pure 영어 검색 화면">
-  <img src="docs/screenshots/variants-en.png" width="30%" alt="ABI, Android, 화면 DPI 실제 조합 선택 화면">
-  <img src="docs/screenshots/cli-en.png" width="30%" alt="Aurora Pure 대화형 PC CLI">
+  <img src="docs/screenshots/search-en.png" width="23%" alt="Aurora Pure 영어 검색 화면">
+  <img src="docs/screenshots/discovery-en.png" width="23%" alt="ABI, DPI, Android 실제 조회 진행 화면">
+  <img src="docs/screenshots/variants-en.png" width="23%" alt="최신 버전부터 묶인 미선택 실제 조합">
+  <img src="docs/screenshots/cli-en.png" width="23%" alt="Aurora Pure 대화형 PC CLI">
 </p>
 
 위 Android 화면과 CLI 이미지는 1.2.1 릴리스 후보에서 직접 만들었습니다. Android 앱과 CLI는 영어·중국어 간체·일본어·한국어를 모두 지원합니다.

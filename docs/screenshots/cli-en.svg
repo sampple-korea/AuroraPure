@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <rect width="1080" height="1920" fill="#0b1016"/>
+  <rect x="20" y="20" width="1040" height="1880" rx="18" fill="#151b22"/>
+  <path d="M38 20h1004a18 18 0 0 1 18 18v68H20V38a18 18 0 0 1 18-18z" fill="#303740"/>
+  <circle cx="68" cy="62" r="11" fill="#ff5f57"/>
+  <circle cx="107" cy="62" r="11" fill="#febc2e"/>
+  <circle cx="146" cy="62" r="11" fill="#28c840"/>
+  <text x="196" y="70" fill="#cbd3dd" font-family="DejaVu Sans Mono, monospace" font-size="23" font-weight="700">Aurora Pure CLI 1.2.1 — complete delivery discovery</text>
+
+  <g font-family="DejaVu Sans Mono, monospace" font-size="20">
+    <text x="44" y="148" fill="#62ed7a" font-weight="700">$ aurora-pure variants</text>
+    <text x="68" y="181" fill="#62ed7a" font-weight="700">com.google.android.apps.authenticator2</text>
+
+    <text x="44" y="244" fill="#d2d9e3">Discovering actual ABI × DPI × Android delivery combinations…</text>
+    <text x="44" y="285" fill="#9ca8b7">Probe 1: arm64-v8a, 160 dpi, Android API 36</text>
+    <text x="44" y="318" fill="#9ca8b7">Probe 24: armeabi-v7a, 213 dpi, Android API 36</text>
+    <text x="44" y="351" fill="#9ca8b7">Probe 61: x86_64, 120 dpi, Android API 36</text>
+    <text x="44" y="384" fill="#9ca8b7">Probe 68: x86, 120 dpi, Android API 36</text>
+    <text x="44" y="417" fill="#9ca8b7">Probe 84: arm64-v8a, 120 dpi, Android API 22</text>
+
+    <text x="44" y="480" fill="#d7a7ff" font-weight="700"># | Version | Architecture | Minimum Android | DPI</text>
+    <text x="44" y="513" fill="#d7a7ff" font-weight="700">  | Actual tested APIs | APKs | Size</text>
+
+    <text x="44" y="576" fill="#c598ff" font-weight="700">Version 7.2 · version code 7002011</text>
+    <text x="44" y="622" fill="#f0d1ff" font-weight="700">1 | Universal: 7.2 (7002011) | arm64-v8a+armeabi-v7a</text>
+    <text x="44" y="655" fill="#d2d9e3">  | Android 9+ (API 28) | 120,160,213,240,320,480,640 dpi</text>
+    <text x="44" y="688" fill="#d2d9e3">  | APIs 28,31,36 | 27 APKs | 21.7 MiB</text>
+    <text x="68" y="729" fill="#79c8ff">observed: arm64-v8a × 120dpi × Android 16/36, 12/31, 9/28</text>
+    <text x="68" y="762" fill="#79c8ff">observed: armeabi-v7a × 120dpi × Android 16/36, 12/31, 9/28</text>
+    <text x="68" y="795" fill="#79c8ff">…all seven standard DPI buckets returned by Play</text>
+
+    <text x="44" y="853" fill="#d2d9e3">2 | 7.2 (7002011) | arm64-v8a+armeabi-v7a | Android 9+</text>
+    <text x="44" y="886" fill="#d2d9e3">  | 120 dpi | API 28 | 3 APKs | 4.4 MiB</text>
+    <text x="68" y="919" fill="#79c8ff">observed: ARM64 + ARM32 × 120dpi × Android 9 / API 28</text>
+
+    <text x="44" y="977" fill="#d2d9e3">3 | 7.2 (7002011) | arm64-v8a+armeabi-v7a | Android 9+</text>
+    <text x="44" y="1010" fill="#d2d9e3">  | 160 dpi | API 28 | 3 APKs | 4.4 MiB</text>
+    <text x="68" y="1043" fill="#79c8ff">observed: ARM64 + ARM32 × 160dpi × Android 9 / API 28</text>
+
+    <text x="44" y="1101" fill="#d2d9e3">4 | 7.2 (7002011) | arm64-v8a+armeabi-v7a | Android 9+</text>
+    <text x="44" y="1134" fill="#d2d9e3">  | 213 dpi | API 28 | 3 APKs | 4.5 MiB</text>
+    <text x="68" y="1167" fill="#79c8ff">observed: ARM64 + ARM32 × 213dpi × Android 9 / API 28</text>
+
+    <text x="44" y="1240" fill="#c598ff" font-weight="700">Version 7.1 · version code 7001056</text>
+    <text x="44" y="1286" fill="#d2d9e3">23 | 7.1 (7001056) | arm64-v8a+armeabi-v7a | Android 6+</text>
+    <text x="44" y="1319" fill="#d2d9e3">   | 120 dpi | Android 8 / API 27 | 3 APKs | 4.4 MiB</text>
+    <text x="68" y="1352" fill="#79c8ff">observed: ARM64 + ARM32 × 120dpi × Android 8 / API 27</text>
+
+    <text x="44" y="1425" fill="#c598ff" font-weight="700">Version 6.0 · version code 6006000</text>
+    <text x="44" y="1471" fill="#d2d9e3">30 | 6.0 (6006000) | arm64-v8a+armeabi-v7a | Android 5+</text>
+    <text x="44" y="1504" fill="#d2d9e3">   | 120,160,213,240,320,480,640 dpi | API 22</text>
+    <text x="44" y="1537" fill="#d2d9e3">   | 1 APK | 10.5 MiB</text>
+
+    <rect x="44" y="1610" width="992" height="1" fill="#35404c"/>
+    <text x="44" y="1662" fill="#9ca8b7">Newest numeric versionCode first · 30 selectable results</text>
+    <text x="44" y="1695" fill="#9ca8b7">from 84 real ABI × DPI × Android profile probes</text>
+    <text x="44" y="1760" fill="#62ed7a">Ready: choose any displayed number or the Universal result.</text>
+  </g>
+</svg>

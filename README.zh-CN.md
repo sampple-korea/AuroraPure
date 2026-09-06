@@ -13,9 +13,10 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
 ## 当前界面
 
 <p align="center">
-  <img src="docs/screenshots/search-en.png" width="30%" alt="Aurora Pure 英文搜索界面">
-  <img src="docs/screenshots/variants-en.png" width="30%" alt="选择真实 ABI、Android 和屏幕 DPI 变体">
-  <img src="docs/screenshots/cli-en.png" width="30%" alt="Aurora Pure 交互式桌面 CLI">
+  <img src="docs/screenshots/search-en.png" width="23%" alt="Aurora Pure 英文搜索界面">
+  <img src="docs/screenshots/discovery-en.png" width="23%" alt="ABI、DPI 与 Android 真实查询进度">
+  <img src="docs/screenshots/variants-en.png" width="23%" alt="按最新版本分组且尚未选择的真实组合">
+  <img src="docs/screenshots/cli-en.png" width="23%" alt="Aurora Pure 交互式桌面 CLI">
 </p>
 
 以上 Android 截图和 CLI 图来自 1.2.1 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。

@@ -551,7 +551,11 @@ private fun printVariants(variants: List<DeliveryVariant>, messages: Messages) {
         .toSortedMap(reverseOrder())
         .forEach { (versionCode, indexedVariants) ->
             println()
-            println(messages.text("version.group", indexedVariants.first().value.versionName, versionCode))
+            println(messages.text(
+                "version.group",
+                indexedVariants.first().value.versionName,
+                versionCode.toString()
+            ))
             indexedVariants.forEach { indexedVariant ->
                 val index = indexedVariant.index
                 val variant = indexedVariant.value
