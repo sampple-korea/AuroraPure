@@ -33,6 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -41,6 +43,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -59,10 +63,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -75,6 +84,7 @@ import com.aurora.pure.PureViewModel
 import com.aurora.pure.R
 import com.aurora.pure.data.AppSummary
 import com.aurora.pure.data.ArchitectureChoice
+import com.aurora.pure.data.ArchitectureVariant
 import com.aurora.pure.data.ConnectionState
 import com.aurora.pure.data.DownloadConfirmation
 import com.aurora.pure.data.DownloadRecord
@@ -201,12 +211,6 @@ private fun SearchScreen(state: PureUiState, viewModel: PureViewModel) {
                 modifier = Modifier.weight(1f)
             ) { Text(stringResource(R.string.search)) }
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            stringResource(R.string.source_notice),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
         Spacer(Modifier.height(12.dp))
         if (state.busy) {
             Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -252,136 +256,437 @@ private fun AppResultCard(app: AppSummary, onClick: () -> Unit) {
 @Composable
 private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
     val app = state.selected ?: return
-    val variantsByVersion = state.variants
-        .groupBy(DeliveryVariant::versionCode)
-        .toSortedMap(reverseOrder())
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(
-                    model = app.iconUrl,
-                    contentDescription = null,
-                    modifier = Modifier.size(78.dp).clip(RoundedCornerShape(18.dp))
-                )
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(app.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(app.developerName, style = MaterialTheme.typography.bodyMedium)
-                    Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+    val variants = state.variants
+    val resultKey = remember(variants) {
+        variants.joinToString("|") { "${it.id}:${it.versionCode}" }
+    }
+    val latestVersionCode = remember(variants) { variants.maxOfOrNull(DeliveryVariant::versionCode) }
+    var versionFilter by rememberSaveable(app.packageName, resultKey) {
+        mutableStateOf<Long?>(latestVersionCode)
+    }
+    var architectureFilterName by rememberSaveable(app.packageName, resultKey) {
+        mutableStateOf(VariantArchitectureFilter.ALL.name)
+    }
+    var densityFilter by rememberSaveable(app.packageName, resultKey) {
+        mutableStateOf<Int?>(null)
+    }
+    var expandedVariantId by rememberSaveable(app.packageName, resultKey) {
+        mutableStateOf("")
+    }
+    var expandedVersionCodes by rememberSaveable(app.packageName, resultKey) {
+        mutableStateOf(latestVersionCode?.toString().orEmpty())
+    }
+    val architectureFilter = runCatching {
+        VariantArchitectureFilter.valueOf(architectureFilterName)
+    }.getOrDefault(VariantArchitectureFilter.ALL)
+    val visibleVariants = remember(variants, versionFilter, architectureFilter, densityFilter) {
+        filterDeliveryVariants(
+            variants,
+            VariantListFilters(versionFilter, architectureFilter, densityFilter)
+        )
+    }
+    val variantsByVersion = remember(visibleVariants) {
+        groupDeliveryVariantsByNewestVersion(visibleVariants)
+    }
+    val expandedVersions = remember(expandedVersionCodes) {
+        expandedVersionCodes.split(',').mapNotNull { it.toLongOrNull() }.toSet()
+    }
+    val selectedVariant = variants.firstOrNull { it.id == state.selectedVariantId }
+
+    LaunchedEffect(visibleVariants, state.selectedVariantId) {
+        if (state.selectedVariantId.isNotBlank() && visibleVariants.none { it.id == state.selectedVariantId }) {
+            expandedVariantId = ""
+            viewModel.clearVariantSelection()
         }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.google_play_delivery), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    DetailRow(stringResource(R.string.version), app.versionName.ifBlank { "—" })
-                    DetailRow(stringResource(R.string.version_code), app.versionCode.takeIf { it > 0 }?.toString() ?: "—")
-                    DetailRow(stringResource(R.string.file_layout), stringResource(R.string.checked_before_download))
-                    DetailRow(stringResource(R.string.save_format), stringResource(R.string.single_apk) + " / " + stringResource(R.string.split_zip))
-                    DetailRow(stringResource(R.string.languages), stringResource(R.string.all_languages))
-                    DetailRow(stringResource(R.string.current_device), android.os.Build.MODEL)
-                    DetailRow(stringResource(R.string.checked_at), formatDate(app.checkedAt))
-                    if (app.size > 0) DetailRow(stringResource(R.string.size), formatBytes(app.size))
-                }
-            }
-        }
-        if (app.shortDescription.isNotBlank()) item {
-            Text(app.shortDescription, style = MaterialTheme.typography.bodyLarge)
-        }
-        if (!app.isFree) item {
-            Text(stringResource(R.string.paid_unavailable), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-        }
-        if (state.discoveringVariants) item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(
-                        stringResource(R.string.discovering_variants),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        state.discoveryProbeDescription.ifBlank {
-                            stringResource(R.string.connecting_google_play)
-                        },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        stringResource(
-                            R.string.discovery_probe_count,
-                            state.discoveryProbeCount
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        } else item {
-            OutlinedButton(
-                onClick = viewModel::discoverVariants,
-                enabled = app.isFree && !state.busy,
-                modifier = Modifier.fillMaxWidth().height(52.dp)
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        CompactAppHeader(app)
+        if (variants.isEmpty()) {
+            VariantDiscoveryBody(
+                app = app,
+                state = state,
+                onRetry = viewModel::discoverVariants,
+                modifier = Modifier.weight(1f)
+            )
+        } else {
+            VariantFilterBar(
+                variants = variants,
+                visibleCount = visibleVariants.size,
+                versionCode = versionFilter,
+                architecture = architectureFilter,
+                densityDpi = densityFilter,
+                onVersionSelected = { versionFilter = it },
+                onArchitectureSelected = { architectureFilterName = it.name },
+                onDensitySelected = { densityFilter = it },
+                onRefresh = viewModel::discoverVariants
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    stringResource(
-                        if (state.variants.isEmpty()) {
-                            R.string.discover_variants
-                        } else {
-                            R.string.refresh_variants
+                if (visibleVariants.isEmpty()) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                stringResource(R.string.no_filtered_variants),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    )
-                )
-            }
-        }
-        if (state.variants.isNotEmpty()) {
-            item {
-                Text(
-                    stringResource(R.string.available_variants),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            variantsByVersion.forEach { (versionCode, variants) ->
-                item(key = "version-$versionCode") {
-                    Text(
-                        stringResource(
-                            R.string.version_group_header,
-                            variants.first().versionName,
-                            versionCode.toString()
-                        ),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    }
                 }
-                items(variants, key = DeliveryVariant::id) { variant ->
-                    VariantCard(
-                        variant = variant,
-                        selected = variant.id == state.selectedVariantId,
-                        onClick = { viewModel.selectVariant(variant.id) }
-                    )
-                }
-            }
-            item {
-                Button(
-                    onClick = viewModel::prepareDownload,
-                    enabled = app.isFree && !state.busy && state.selectedVariantId.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(52.dp)
-                ) {
-                    if (state.busy && !state.discoveringVariants) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text(stringResource(R.string.latest_files))
+                variantsByVersion.forEach { (versionCode, versionVariants) ->
+                    val sectionExpanded = versionFilter != null || versionCode in expandedVersions
+                    item(key = "version-$versionCode") {
+                        VersionSectionHeader(
+                            versionName = versionVariants.first().versionName,
+                            versionCode = versionCode,
+                            resultCount = versionVariants.size,
+                            expanded = sectionExpanded,
+                            collapsible = versionFilter == null,
+                            onToggle = {
+                                val updated = if (versionCode in expandedVersions) {
+                                    expandedVersions - versionCode
+                                } else {
+                                    expandedVersions + versionCode
+                                }
+                                expandedVersionCodes = updated.sortedDescending().joinToString(",")
+                            }
+                        )
+                    }
+                    if (sectionExpanded) {
+                        items(versionVariants, key = DeliveryVariant::id) { variant ->
+                            VariantCard(
+                                variant = variant,
+                                selected = variant.id == state.selectedVariantId,
+                                expanded = variant.id == expandedVariantId,
+                                onSelect = { viewModel.selectVariant(variant.id) },
+                                onToggleExpanded = {
+                                    viewModel.selectVariant(variant.id)
+                                    expandedVariantId = if (expandedVariantId == variant.id) "" else variant.id
+                                }
+                            )
+                        }
                     }
                 }
             }
+        }
+        DownloadActionBar(
+            state = state,
+            app = app,
+            selectedVariant = selectedVariant,
+            onDownload = viewModel::prepareDownload
+        )
+    }
+}
+
+@Composable
+private fun CompactAppHeader(app: AppSummary) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AsyncImage(
+            model = app.iconUrl,
+            contentDescription = null,
+            modifier = Modifier.size(54.dp).clip(RoundedCornerShape(14.dp))
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                app.displayName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                app.developerName,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                app.packageName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun VariantDiscoveryBody(
+    app: AppSummary,
+    state: PureUiState,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (app.shortDescription.isNotBlank()) {
+            item {
+                Text(
+                    app.shortDescription,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (!app.isFree) {
+            item {
+                Text(
+                    stringResource(R.string.paid_unavailable),
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        } else if (state.discoveringVariants) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text(stringResource(R.string.discovering_variants), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            state.discoveryProbeDescription.ifBlank {
+                                stringResource(R.string.connecting_google_play)
+                            },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            stringResource(R.string.discovery_probe_count, state.discoveryProbeCount),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            item {
+                OutlinedButton(
+                    onClick = onRetry,
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text(stringResource(R.string.discover_variants))
+                }
+            }
+        }
+    }
+}
+
+private data class VariantFilterOption<T>(
+    val value: T,
+    val label: String,
+    val compactLabel: String = label
+)
+
+@Composable
+private fun VariantFilterBar(
+    variants: List<DeliveryVariant>,
+    visibleCount: Int,
+    versionCode: Long?,
+    architecture: VariantArchitectureFilter,
+    densityDpi: Int?,
+    onVersionSelected: (Long?) -> Unit,
+    onArchitectureSelected: (VariantArchitectureFilter) -> Unit,
+    onDensitySelected: (Int?) -> Unit,
+    onRefresh: () -> Unit
+) {
+    val resources = LocalResources.current
+    val versions = remember(variants) { groupDeliveryVariantsByNewestVersion(variants) }
+    val versionOptions: List<VariantFilterOption<Long?>> = buildList {
+        add(VariantFilterOption<Long?>(null, resources.getString(R.string.filter_all)))
+        versions.forEach { (code, matching) ->
+            add(
+                VariantFilterOption<Long?>(
+                    code,
+                    resources.getString(
+                        R.string.filter_version_value,
+                        matching.first().versionName,
+                        code.toString(),
+                        matching.size
+                    ),
+                    matching.first().versionName
+                )
+            )
+        }
+    }
+    val actualArchitectures = remember(variants) {
+        variants.flatMap(DeliveryVariant::architectures).toSet()
+    }
+    val architectureLabels = mapOf(
+        VariantArchitectureFilter.ALL to stringResource(R.string.filter_all),
+        VariantArchitectureFilter.UNIVERSAL to stringResource(R.string.filter_universal),
+        VariantArchitectureFilter.BIT_64 to stringResource(R.string.filter_64_bit),
+        VariantArchitectureFilter.BIT_32 to stringResource(R.string.filter_32_bit),
+        VariantArchitectureFilter.ARM_64 to ArchitectureVariant.ARM_64.archiveDirectory,
+        VariantArchitectureFilter.ARM_32 to ArchitectureVariant.ARM_32.archiveDirectory,
+        VariantArchitectureFilter.X86_64 to ArchitectureVariant.X86_64.archiveDirectory,
+        VariantArchitectureFilter.X86 to ArchitectureVariant.X86.archiveDirectory
+    )
+    val architectureOptions = buildList {
+        add(VariantArchitectureFilter.ALL)
+        if (variants.any(DeliveryVariant::universal)) add(VariantArchitectureFilter.UNIVERSAL)
+        if (actualArchitectures.any { it.bitness == 64 }) add(VariantArchitectureFilter.BIT_64)
+        if (actualArchitectures.any { it.bitness == 32 }) add(VariantArchitectureFilter.BIT_32)
+        if (ArchitectureVariant.ARM_64 in actualArchitectures) add(VariantArchitectureFilter.ARM_64)
+        if (ArchitectureVariant.ARM_32 in actualArchitectures) add(VariantArchitectureFilter.ARM_32)
+        if (ArchitectureVariant.X86_64 in actualArchitectures) add(VariantArchitectureFilter.X86_64)
+        if (ArchitectureVariant.X86 in actualArchitectures) add(VariantArchitectureFilter.X86)
+    }.map { VariantFilterOption(it, architectureLabels.getValue(it)) }
+    val densityOptions: List<VariantFilterOption<Int?>> = buildList {
+        add(VariantFilterOption<Int?>(null, resources.getString(R.string.filter_all)))
+        variants.flatMap(DeliveryVariant::densityDpis).distinct().sorted().forEach { dpi ->
+            add(
+                VariantFilterOption<Int?>(
+                    dpi,
+                    resources.getString(R.string.filter_dpi_value, dpi),
+                    dpi.toString()
+                )
+            )
+        }
+    }
+
+    Surface(tonalElevation = 2.dp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.result_count, visibleCount),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onRefresh, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Refresh, stringResource(R.string.refresh_variants))
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                VariantFilterMenu(
+                    category = stringResource(R.string.filter_version),
+                    selected = versionCode,
+                    options = versionOptions,
+                    active = versionCode != versions.keys.firstOrNull(),
+                    onSelected = onVersionSelected,
+                    modifier = Modifier.weight(1f)
+                )
+                VariantFilterMenu(
+                    category = stringResource(R.string.filter_architecture),
+                    selected = architecture,
+                    options = architectureOptions,
+                    active = architecture != VariantArchitectureFilter.ALL,
+                    onSelected = onArchitectureSelected,
+                    modifier = Modifier.weight(1f)
+                )
+                VariantFilterMenu(
+                    category = stringResource(R.string.filter_dpi),
+                    selected = densityDpi,
+                    options = densityOptions,
+                    active = densityDpi != null,
+                    onSelected = onDensitySelected,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T> VariantFilterMenu(
+    category: String,
+    selected: T,
+    options: List<VariantFilterOption<T>>,
+    active: Boolean,
+    onSelected: (T) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.value == selected }?.compactLabel.orEmpty()
+    Box(modifier) {
+        FilterChip(
+            selected = active,
+            onClick = { expanded = true },
+            label = {
+                Column {
+                    Text(
+                        category,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                    Text(
+                        selectedLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp)) }
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = {
+                        expanded = false
+                        onSelected(option.value)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VersionSectionHeader(
+    versionName: String,
+    versionCode: Long,
+    resultCount: Int,
+    expanded: Boolean,
+    collapsible: Boolean,
+    onToggle: () -> Unit
+) {
+    val clickModifier = if (collapsible) Modifier.clickable(onClick = onToggle) else Modifier
+    Row(
+        clickModifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(
+                R.string.version_group_summary,
+                versionName,
+                versionCode.toString(),
+                resultCount
+            ),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f)
+        )
+        if (collapsible) {
+            Icon(
+                Icons.Default.ArrowDropDown,
+                stringResource(if (expanded) R.string.collapse_details else R.string.expand_details),
+                Modifier.rotate(if (expanded) 180f else 0f)
+            )
         }
     }
 }
@@ -390,17 +695,31 @@ private fun DetailsScreen(state: PureUiState, viewModel: PureViewModel) {
 private fun VariantCard(
     variant: DeliveryVariant,
     selected: Boolean,
-    onClick: () -> Unit
+    expanded: Boolean,
+    onSelect: () -> Unit,
+    onToggleExpanded: () -> Unit
 ) {
     val resources = LocalResources.current
-    val observedTargets = variant.profiles
-        .groupBy { it.variant to it.densityDpi }
-        .toSortedMap(compareBy<Pair<com.aurora.pure.data.ArchitectureVariant, Int>>(
-            { it.first.ordinal },
-            { it.second }
-        ))
+    val architectureSummary = remember(variant.id) {
+        variant.architectures.joinToString(" + ") { it.archiveDirectory }
+    }
+    val densitySummary = if (variant.densityDpis.size <= 3) {
+        variant.densityDpis.joinToString(", ", postfix = " dpi")
+    } else {
+        stringResource(
+            R.string.compact_dpi_range,
+            variant.densityDpis.first(),
+            variant.densityDpis.last(),
+            variant.densityDpis.size
+        )
+    }
+    val observedTargets = remember(variant.id, expanded) {
+        if (!expanded) emptyMap() else variant.profiles
+            .groupBy { it.variant to it.densityDpi }
+            .toSortedMap(compareBy<Pair<ArchitectureVariant, Int>>({ it.first.ordinal }, { it.second }))
+    }
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleExpanded),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -410,100 +729,156 @@ private fun VariantCard(
         )
     ) {
         Row(
-            Modifier.padding(14.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Top
         ) {
-            RadioButton(selected = selected, onClick = onClick)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(
-                    if (variant.aggregate) {
+            RadioButton(selected = selected, onClick = onSelect)
+            Spacer(Modifier.width(6.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
                         stringResource(
-                            if (variant.universal) {
-                                R.string.universal_variant
-                            } else {
-                                R.string.combined_variant
+                            R.string.compact_variant_version,
+                            variant.versionName,
+                            variant.versionCode.toString()
+                        ),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (variant.universal) {
+                        Text(
+                            stringResource(R.string.filter_universal),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        stringResource(if (expanded) R.string.collapse_details else R.string.expand_details),
+                        Modifier.size(22.dp).rotate(if (expanded) 180f else 0f)
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        architectureSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        densitySummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+                if (expanded) {
+                    HorizontalDivider(Modifier.padding(vertical = 7.dp))
+                    DetailRow(stringResource(R.string.architecture), architectureSummary)
+                    DetailRow(
+                        stringResource(R.string.screen_density),
+                        variant.densityDpis.joinToString(", ", postfix = " dpi")
+                    )
+                    DetailRow(
+                        stringResource(R.string.minimum_android),
+                        stringResource(
+                            R.string.android_api_value,
+                            DeviceProfile.androidRelease(variant.minSdk),
+                            variant.minSdk
+                        )
+                    )
+                    DetailRow(
+                        stringResource(R.string.probed_android),
+                        variant.testedSdkVersions.joinToString(", ") { "API $it" }
+                    )
+                    DetailRow(
+                        stringResource(R.string.file_layout),
+                        stringResource(
+                            R.string.apk_count_size,
+                            variant.artifactCount,
+                            formatBytes(variant.totalBytes)
+                        )
+                    )
+                    Text(
+                        stringResource(R.string.actual_combinations),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 5.dp)
+                    )
+                    for ((target, profiles) in observedTargets) {
+                        val apiText = profiles
+                            .map { it.sdkVersion }
+                            .distinct()
+                            .sortedDescending()
+                            .joinToString(", ") { sdk ->
+                                resources.getString(
+                                    R.string.actual_combination_api,
+                                    DeviceProfile.androidRelease(sdk),
+                                    sdk
+                                )
                             }
+                        Text(
+                            stringResource(
+                                R.string.actual_combination_value,
+                                target.first.archiveDirectory,
+                                target.second,
+                                apiText
+                            ),
+                            style = MaterialTheme.typography.bodySmall
                         )
-                    } else {
-                        stringResource(
-                            R.string.variant_version,
-                            variant.versionName,
-                            variant.versionCode.toString()
-                        )
-                    },
-                    fontWeight = FontWeight.Bold
-                )
-                if (variant.aggregate) {
-                    Text(
-                        stringResource(
-                            R.string.variant_version,
-                            variant.versionName,
-                            variant.versionCode.toString()
-                        ),
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    }
                 }
-                DetailRow(
-                    stringResource(R.string.architecture),
-                    variant.architectures.joinToString(" + ") { it.archiveDirectory }
-                )
-                DetailRow(
-                    stringResource(R.string.minimum_android),
-                    stringResource(
-                        R.string.android_api_value,
-                        DeviceProfile.androidRelease(variant.minSdk),
-                        variant.minSdk
-                    )
-                )
-                DetailRow(
-                    stringResource(R.string.screen_density),
-                    variant.densityDpis.joinToString(", ", postfix = " dpi")
-                )
-                DetailRow(
-                    stringResource(R.string.probed_android),
-                    variant.testedSdkVersions.joinToString(", ") { "API $it" }
-                )
-                DetailRow(
-                    stringResource(R.string.file_layout),
-                    stringResource(
-                        R.string.apk_count_size,
-                        variant.artifactCount,
-                        formatBytes(variant.totalBytes)
-                    )
-                )
-                Text(
-                    stringResource(R.string.actual_combinations),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                for ((target, profiles) in observedTargets) {
-                    val apiText = profiles
-                        .map { it.sdkVersion }
-                        .distinct()
-                        .sortedDescending()
-                        .joinToString(", ") { sdk ->
-                            resources.getString(
-                                R.string.actual_combination_api,
-                                DeviceProfile.androidRelease(sdk),
-                                sdk
-                            )
-                        }
-                    Text(
-                        stringResource(
-                            R.string.actual_combination_value,
-                            target.first.archiveDirectory,
-                            target.second,
-                            apiText
-                        ),
-                        style = MaterialTheme.typography.bodySmall
-                    )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadActionBar(
+    state: PureUiState,
+    app: AppSummary,
+    selectedVariant: DeliveryVariant?,
+    onDownload: () -> Unit
+) {
+    val selectionSummary = selectedVariant?.let { variant ->
+        stringResource(
+            R.string.selected_variant_summary,
+            variant.versionName,
+            variant.architectures.joinToString("+") { it.archiveDirectory },
+            variant.densityDpis.joinToString(",", postfix = " dpi")
+        )
+    } ?: stringResource(
+        if (state.discoveringVariants) R.string.discovering_variants else R.string.select_variant
+    )
+    Surface(shadowElevation = 8.dp, tonalElevation = 2.dp) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                selectionSummary,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Button(
+                onClick = onDownload,
+                enabled = app.isFree && !state.busy && selectedVariant != null,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                if (state.busy && !state.discoveringVariants) {
+                    CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.preparing_download))
+                } else {
+                    Text(stringResource(R.string.download_action))
                 }
-                Text(
-                    stringResource(R.string.equivalent_combinations_note),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
@@ -785,30 +1160,15 @@ private fun VersionConfirmation(
                 modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    stringResource(
-                        if (confirmation.changed) {
-                            R.string.version_changed_body
-                        } else {
-                            R.string.plan_review_body
-                        }
-                    )
-                )
+                if (confirmation.changed) {
+                    Text(stringResource(R.string.version_changed_body))
+                }
                 if (confirmation.reason.isNotBlank()) {
                     Text(confirmation.reason, fontWeight = FontWeight.Bold)
                 }
                 DetailRow(
                     stringResource(R.string.version),
                     "${confirmation.plan.versionName} (${confirmation.plan.versionCode})"
-                )
-                DetailRow(stringResource(R.string.source), stringResource(R.string.google_play_delivery))
-                DetailRow(
-                    stringResource(R.string.delivery_condition),
-                    stringResource(R.string.current_condition_latest)
-                )
-                DetailRow(
-                    stringResource(R.string.distribution_track),
-                    stringResource(R.string.track_unknown)
                 )
                 DetailRow(
                     stringResource(R.string.architecture),
@@ -871,13 +1231,6 @@ private fun VersionConfirmation(
                 if (confirmation.plan.hasAdditionalData) {
                     Text(
                         stringResource(R.string.additional_data_warning),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                if (confirmation.plan.deliveryProfiles.size > 1) {
-                    Text(
-                        stringResource(R.string.combined_variants_notice),
                         color = MaterialTheme.colorScheme.tertiary,
                         style = MaterialTheme.typography.bodySmall
                     )

@@ -265,6 +265,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearVariantSelection() {
+        _uiState.update { it.copy(selectedVariantId = "") }
+    }
+
     fun confirmDownload() {
         val confirmation = _uiState.value.confirmation ?: return
         _uiState.update { it.copy(confirmation = null) }
