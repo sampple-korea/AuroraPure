@@ -13,13 +13,16 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
 ## 当前界面
 
 <p align="center">
-  <img src="docs/screenshots/search-en.png" width="23%" alt="Aurora Pure 英文搜索界面">
-  <img src="docs/screenshots/discovery-en.png" width="23%" alt="ABI、DPI 与 Android 真实查询进度">
-  <img src="docs/screenshots/variants-en.png" width="23%" alt="按最新版本分组且尚未选择的真实组合">
-  <img src="docs/screenshots/cli-en.png" width="23%" alt="Aurora Pure 交互式桌面 CLI">
+  <img src="docs/screenshots/search-en.png" width="24%" alt="Aurora Pure 英文搜索界面">
+  <img src="docs/screenshots/discovery-en.png" width="24%" alt="ABI、DPI 与 Android 真实查询进度">
+  <img src="docs/screenshots/variants-en.png" width="24%" alt="带版本、架构和 DPI 筛选的紧凑结果界面">
+</p>
+<p align="center">
+  <img src="docs/screenshots/details-en.png" width="32%" alt="展开详情并固定下载操作的界面">
+  <img src="docs/screenshots/cli-en.png" width="32%" alt="Aurora Pure 交互式桌面 CLI">
 </p>
 
-以上 Android 截图和 CLI 图来自 1.2.1 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。
+以上 Android 截图和 CLI 图来自 1.3.0 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。
 
 ## 下载
 
@@ -27,19 +30,21 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
 
 | 平台 | 文件 | 要求 |
 | --- | --- | --- |
-| Android | `AuroraPure-1.2.1.apk` | Android 10 / API 29 或更高 |
-| Linux、macOS CLI | `aurora-pure-cli-1.2.1.tar` 或 `.zip` | Java 21 或更高 |
-| Windows CLI | `aurora-pure-cli-1.2.1.zip` | Java 21 或更高；运行 `bin\aurora-pure.bat` |
+| Android | `AuroraPure-1.3.0.apk` | Android 10 / API 29 或更高 |
+| Linux、macOS CLI | `aurora-pure-cli-1.3.0.tar` 或 `.zip` | Java 21 或更高 |
+| Windows CLI | `aurora-pure-cli-1.3.0.zip` | Java 21 或更高；运行 `bin\aurora-pure.bat` |
 
 Aurora Pure 只负责下载。若要安装结果，请另行使用 Android 文件管理器或兼容的分包 APK 安装器。
 
-## 1.2.1 功能
+## 1.3.0 功能
 
 - 按应用名、包名、Google Play URL 或分享的 Play 链接搜索。
 - 显示图标、开发者、包名、版本信息和说明。
 - 无需输入个人 Google 账号的匿名会话。
 - 打开应用详情时无需预选 ABI 或 DPI，自动查询支持的**全部真实交付组合**。
-- 按数字版本代码从新到旧分组结果，再从列表选择 Google Play 实际返回的 ABI、最低 Android、实测 Android 配置和屏幕 DPI。
+- 默认打开数字版本代码最大的版本；版本、架构和 DPI 筛选磁贴只列出实际返回的值。
+- 普通行仅显示版本、架构和 DPI；点击后再展开最低 Android、实测配置、APK 数量、大小和实际组合。
+- 滚动结果列表时，已选结果和下载按钮始终固定在屏幕底部。
 - 探测 ARM64、ARM32、x86_64 和 x86，并提供汇总 Play 实际返回最新集合的 **Universal 结果**。
 - 探测标准密度 120、160、213、240、320、480、640dpi，以及每条路径中真实存在的 Android 交付层级。
 - 最多并行查询四条独立交付路径，并在 Android 加载界面显示正在处理的 ABI、DPI 和 Android 配置。
@@ -53,18 +58,17 @@ Aurora Pure 只负责下载。若要安装结果，请另行使用 Android 文�
 
 在 Android 中打开应用后，Aurora Pure 会自动开始完整扫描：ARM64、ARM32、x86_64、x86 与七种标准 DPI。每条 `ABI × DPI` 路径从 Android API 36 开始，读取 Google Play 实际返回 APK Manifest 的 `minSdk`，再探测下一个有意义的旧 Android 层级。独立路径采用有上限的并行处理，每条路径内部仍保持顺序。
 
-结果按数字 `versionCode` 从大到小分成版本区段，最新版本在前；不会按显示用的 `versionName` 字符串排序。同一版本内，只有版本和实际 APK 文件集完全相同的响应才会合并。每个可选行都会显示：
+结果按数字 `versionCode` 从大到小分成版本区段，最新版本在前；不会按显示用的 `versionName` 字符串排序。初始只显示最新版本；在版本筛选中选择 **全部** 后，旧版本区段会以折叠状态出现。架构和 DPI 筛选仅包含扫描结果中实际存在的值。
 
-- 交付版本名和版本代码；
-- 兼容 ABI；
+同一版本内，只有版本和实际 APK 文件集完全相同的响应才会合并。折叠行只显示交付版本、兼容架构和 DPI，点击后可查看：
+
 - APK Manifest 中的最低 Android；
-- 实际观察到的 DPI；
 - 返回该文件集的 Android API 配置；
 - 唯一 APK 数量和下载大小。
 
 **Universal** 行会在不混合版本代码的前提下汇总最新已发现集合。系统会探测四种 ABI；如果 Play 没有为该应用交付某个架构，就会明确省略而不会伪造，并在行中显示实际返回的架构。扫描结束后不会自动选择任何结果，选择权留给用户。Aurora Pure 不会重写多个 split APK，也不会伪造单体通用 APK。
 
-Google Play 还可能按设备功能或图形纹理格式等维度定向。1.2.1 明确覆盖 ABI、密度、Android 版本和语言维度，而不声称覆盖 Play 的所有可能维度。
+Google Play 还可能按设备功能或图形纹理格式等维度定向。1.3.0 明确覆盖 ABI、密度、Android 版本和语言维度，而不声称覆盖 Play 的所有可能维度。
 
 ## 输出约定
 

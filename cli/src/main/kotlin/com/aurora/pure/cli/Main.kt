@@ -25,7 +25,7 @@ import picocli.CommandLine.ScopeType
 @Command(
     name = "aurora-pure",
     mixinStandardHelpOptions = true,
-    version = ["Aurora Pure CLI 1.2.1"],
+    version = ["Aurora Pure CLI 1.3.0"],
     description = ["Interactive, download-only Google Play APK client."],
     subcommands = [
         SearchCommand::class,

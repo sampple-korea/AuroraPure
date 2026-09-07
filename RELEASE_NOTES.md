@@ -1,3 +1,31 @@
+# Aurora Pure 1.3.0
+
+This release redesigns Android result browsing for large delivery matrices while preserving complete, result-first discovery.
+
+## Compact result browser
+
+- Defaults to the newest numeric `versionCode` instead of opening all returned versions at once.
+- Adds always-visible Version, Architecture, and DPI filter tiles populated only from values observed in the completed scan.
+- Keeps collapsed rows to version, architecture, and DPI; tapping a row reveals minimum Android, tested API tiers, APK count, size, and exact observed combinations.
+- Shows all versions on demand, ordered newest first, with older version sections collapsed until opened.
+- Clears a selection when filters hide it so the fixed action bar can never download an invisible result.
+
+## Faster interaction
+
+- Keeps the selected result summary and Download button fixed at the bottom while dozens of results scroll independently.
+- Retains precise live ABI/DPI/Android progress during discovery without persistent internal-policy explanations in the main flow.
+- Compacts multi-DPI and Universal rows into a readable range/count summary while preserving the full values in expanded details.
+- Simplifies download-plan review to actionable delivery data and warnings.
+
+## Global documentation and verification
+
+- Adds complete English, Korean, Japanese, and Simplified Chinese strings for the new result browser.
+- Refreshes current Android and CLI screenshots and all four READMEs for the new interaction model.
+- Adds focused tests for combined filters and descending numeric version grouping.
+- Verified against a live 84-profile Google Play scan that returned 30 selectable results across versions 7.2, 7.1, and 6.0.
+
+---
+
 # Aurora Pure 1.2.1
 
 This release removes pre-discovery ABI and DPI selection. Opening an app now discovers the complete supported delivery matrix first and lets the user choose from actual Google Play results.

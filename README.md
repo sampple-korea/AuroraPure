@@ -13,13 +13,16 @@ Aurora Pure is a download-only Android app and desktop CLI for saving APK files 
 ## Current interface
 
 <p align="center">
-  <img src="docs/screenshots/search-en.png" width="23%" alt="Aurora Pure English search screen">
-  <img src="docs/screenshots/discovery-en.png" width="23%" alt="Live ABI, DPI, and Android discovery progress">
-  <img src="docs/screenshots/variants-en.png" width="23%" alt="Unselected results grouped by newest version">
-  <img src="docs/screenshots/cli-en.png" width="23%" alt="Aurora Pure interactive desktop CLI">
+  <img src="docs/screenshots/search-en.png" width="24%" alt="Aurora Pure English search screen">
+  <img src="docs/screenshots/discovery-en.png" width="24%" alt="Live ABI, DPI, and Android discovery progress">
+  <img src="docs/screenshots/variants-en.png" width="24%" alt="Compact results with version, architecture, and DPI filters">
+</p>
+<p align="center">
+  <img src="docs/screenshots/details-en.png" width="32%" alt="Expanded delivery result with the fixed download action">
+  <img src="docs/screenshots/cli-en.png" width="32%" alt="Aurora Pure interactive desktop CLI">
 </p>
 
-The Android screenshots and CLI capture above are generated from the 1.2.1 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
+The Android screenshots and CLI capture above are generated from the 1.3.0 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
 
 ## Download
 
@@ -27,19 +30,21 @@ Get release files from [GitHub Releases](https://github.com/sampple-korea/Aurora
 
 | Platform | Release file | Requirement |
 | --- | --- | --- |
-| Android | `AuroraPure-1.2.1.apk` | Android 10 / API 29 or newer |
-| Linux and macOS CLI | `aurora-pure-cli-1.2.1.tar` or `.zip` | Java 21 or newer |
-| Windows CLI | `aurora-pure-cli-1.2.1.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
+| Android | `AuroraPure-1.3.0.apk` | Android 10 / API 29 or newer |
+| Linux and macOS CLI | `aurora-pure-cli-1.3.0.tar` or `.zip` | Java 21 or newer |
+| Windows CLI | `aurora-pure-cli-1.3.0.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
 
 Aurora Pure downloads files only. To install a downloaded app, use Android's file manager or a compatible split-APK installer separately.
 
-## What 1.2.1 can do
+## What 1.3.0 can do
 
 - Search by app name, package name, Google Play URL, or a shared Play link.
 - Show the app icon, developer, package name, version metadata, and description.
 - Use an anonymous session without entering a personal Google account.
 - Automatically discover the complete supported delivery matrix when an app is opened, without ABI or DPI preselection.
-- Group results by numeric version code, newest first, then let the user select the version, ABI, minimum Android version, tested Android profile, and screen DPI returned by Google Play.
+- Open on the newest numeric version by default, with always-visible Version, Architecture, and DPI filter tiles built only from returned results.
+- Keep each row compact—version, architecture, and DPI—then reveal minimum Android, tested profiles, APK count, size, and exact combinations on tap.
+- Keep the selected result and Download action fixed at the bottom while the result list scrolls.
 - Offer a **Universal** result that includes every latest architecture set Play actually returned after probing ARM64, ARM32, x86_64, and x86.
 - Probe the standard density buckets—120, 160, 213, 240, 320, 480, and 640dpi—and follow each path through observed Android delivery tiers.
 - Query up to four independent delivery paths concurrently and show the active ABI/DPI/Android work in the Android loading view.
@@ -53,18 +58,17 @@ Aurora Pure downloads files only. To install a downloaded app, use Android's fil
 
 Opening an app on Android automatically starts a complete scan: ARM64, ARM32, x86_64, and x86 across all seven standard DPI buckets. Each `ABI × DPI` path begins at Android API 36, reads the `minSdk` from the APK Play actually returned, and then probes the next meaningful older Android tier. Independent paths run with bounded concurrency while traversal inside each path remains ordered.
 
-Results are split into version sections ordered by numeric `versionCode`, newest first. The display-oriented `versionName` is never compared as a string. Within each version, results are grouped only when their version and real APK artifact set are identical. Every selectable row therefore represents an observed combination and shows:
+Results are split into version sections ordered by numeric `versionCode`, newest first. The display-oriented `versionName` is never compared as a string. The newest version is selected as the initial view; choosing **All** exposes every version section with older sections collapsed. Architecture and DPI filters contain only values present in the scan.
 
-- delivered version name and version code;
-- one or more compatible ABIs;
+Within each version, responses are grouped only when their version and real APK artifact set are identical. A collapsed row shows only the delivered version, compatible architectures, and observed DPI values. Tapping it reveals:
+
 - minimum Android version from the APK manifest;
-- observed DPI values;
 - Android API profiles that returned that exact set;
 - unique APK count and download size.
 
 The **Universal** row combines the latest discovered sets without mixing version codes. All four ABI families are probed; a family that Play does not deliver for that app is omitted rather than fabricated, and the row shows exactly which families were returned. Nothing is selected until the user chooses a result. Aurora Pure does not rewrite or merge several split APKs into a fabricated monolithic APK.
 
-Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.2.1 covers the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
+Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.3.0 covers the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
 
 ## Output contract
 

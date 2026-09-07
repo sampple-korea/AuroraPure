@@ -13,13 +13,16 @@ Aurora Pure は、Google Play が実際に配信する APK ファイルを保存
 ## 現在の画面
 
 <p align="center">
-  <img src="docs/screenshots/search-en.png" width="23%" alt="Aurora Pure の英語検索画面">
-  <img src="docs/screenshots/discovery-en.png" width="23%" alt="ABI、DPI、Android の実際の調査進捗">
-  <img src="docs/screenshots/variants-en.png" width="23%" alt="最新バージョン順にまとめた未選択の実在する組み合わせ">
-  <img src="docs/screenshots/cli-en.png" width="23%" alt="Aurora Pure の対話型デスクトップ CLI">
+  <img src="docs/screenshots/search-en.png" width="24%" alt="Aurora Pure の英語検索画面">
+  <img src="docs/screenshots/discovery-en.png" width="24%" alt="ABI、DPI、Android の実際の調査進捗">
+  <img src="docs/screenshots/variants-en.png" width="24%" alt="バージョン、アーキテクチャ、DPI フィルター付きの簡潔な結果画面">
+</p>
+<p align="center">
+  <img src="docs/screenshots/details-en.png" width="32%" alt="詳細を展開しダウンロード操作を固定した画面">
+  <img src="docs/screenshots/cli-en.png" width="32%" alt="Aurora Pure の対話型デスクトップ CLI">
 </p>
 
-上の Android 画面と CLI 画像は 1.2.1 リリース候補から作成しています。Android アプリと CLI は英語、簡体字中国語、日本語、韓国語に完全対応します。
+上の Android 画面と CLI 画像は 1.3.0 リリース候補から作成しています。Android アプリと CLI は英語、簡体字中国語、日本語、韓国語に完全対応します。
 
 ## ダウンロード
 
@@ -27,19 +30,21 @@ Aurora Pure は、Google Play が実際に配信する APK ファイルを保存
 
 | プラットフォーム | ファイル | 要件 |
 | --- | --- | --- |
-| Android | `AuroraPure-1.2.1.apk` | Android 10 / API 29 以降 |
-| Linux・macOS CLI | `aurora-pure-cli-1.2.1.tar` または `.zip` | Java 21 以降 |
-| Windows CLI | `aurora-pure-cli-1.2.1.zip` | Java 21 以降、`bin\aurora-pure.bat` を実行 |
+| Android | `AuroraPure-1.3.0.apk` | Android 10 / API 29 以降 |
+| Linux・macOS CLI | `aurora-pure-cli-1.3.0.tar` または `.zip` | Java 21 以降 |
+| Windows CLI | `aurora-pure-cli-1.3.0.zip` | Java 21 以降、`bin\aurora-pure.bat` を実行 |
 
 Aurora Pure はファイルのダウンロードだけを行います。インストールには Android のファイルマネージャーまたは互換性のある分割 APK インストーラーを別途使用してください。
 
-## 1.2.1 の機能
+## 1.3.0 の機能
 
 - アプリ名、パッケージ名、Google Play URL、共有された Play リンクで検索。
 - アイコン、開発者、パッケージ名、バージョン情報、説明を表示。
 - 個人 Google アカウントを入力しない匿名セッション。
 - アプリを開くと ABI や DPI を事前選択せず、対応する**実際の配信組み合わせ全体**を自動調査。
-- 数値のバージョンコードが大きい順に結果をバージョン別にまとめ、Google Play が返した ABI、最小 Android、確認済み Android プロファイル、画面 DPI を一覧から選択。
+- 数値バージョンコードが最も大きい版を最初に表示し、実際の結果に存在するバージョン、アーキテクチャ、DPI だけをフィルタータイルに表示。
+- 通常行はバージョン、アーキテクチャ、DPI だけに絞り、タップすると最小 Android、確認済みプロファイル、APK 数、サイズ、実際の組み合わせを展開。
+- 一覧をスクロールしても、選択結果とダウンロードボタンを画面下部に固定。
 - ARM64、ARM32、x86_64、x86 をすべて調査し、Play が実際に APK を返した最新セットを含める **Universal 結果**。
 - 標準密度 120、160、213、240、320、480、640dpi と、各経路で実在する Android 配信階層を調査。
 - 独立した配信経路を最大 4 本並列で調査し、Android の読み込み画面に処理中の ABI、DPI、Android プロファイルを表示。
@@ -53,18 +58,17 @@ Aurora Pure はファイルのダウンロードだけを行います。イン�
 
 Android でアプリを開くと、ARM64、ARM32、x86_64、x86 と 7 種類の標準 DPI の全体調査が自動的に始まります。各 `ABI × DPI` 経路は Android API 36 から開始し、Google Play が実際に返した APK Manifest の `minSdk` を読み、次に意味のある古い Android 階層を調査します。独立した経路は上限付きで並列処理し、各経路内の順序は維持します。
 
-結果は数値の `versionCode` が大きい最新バージョンから、バージョン別の区画に分けます。表示用の `versionName` を文字列として並べ替えることはありません。同じバージョン内では、バージョンと実 APK ファイルセットが完全に一致する応答だけをまとめます。選択可能な各行には次が表示されます。
+結果は数値の `versionCode` が大きい最新バージョンから、バージョン別の区画に分けます。表示用の `versionName` を文字列として並べ替えることはありません。最初は最新バージョンだけを表示し、バージョンフィルターで **すべて** を選ぶと旧バージョンの区画が折りたたまれて現れます。アーキテクチャと DPI のフィルターには、調査結果に実在する値だけが並びます。
 
-- 配信バージョン名とバージョンコード
-- 互換 ABI
+同じバージョン内では、バージョンと実 APK ファイルセットが完全に一致する応答だけをまとめます。折りたたまれた行は配信バージョン、互換アーキテクチャ、DPI のみを表示し、タップすると次の情報を確認できます。
+
 - APK Manifest に記録された最小 Android
-- 実際に確認した DPI
 - そのセットを返した Android API プロファイル
 - 固有 APK 数とダウンロードサイズ
 
 **Universal** 行は、最新検出セットをバージョンコードを混在させずにまとめた選択肢です。4 ABI 系列をすべて調査しますが、そのアプリを Play が配信しない系列は捏造せず除外し、実際に返された系列を行に表示します。調査後も何も自動選択せず、利用者が結果を選びます。複数の split APK を書き換えて偽の単一 APK にすることはありません。
 
-Google Play は端末機能やグラフィックテクスチャ形式など、さらに別の次元で配信を最適化する場合があります。1.2.1 が明示的に扱うのは ABI、密度、Android バージョン、言語です。
+Google Play は端末機能やグラフィックテクスチャ形式など、さらに別の次元で配信を最適化する場合があります。1.3.0 が明示的に扱うのは ABI、密度、Android バージョン、言語です。
 
 ## 出力仕様
 
