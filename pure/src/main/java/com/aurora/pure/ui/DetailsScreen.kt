@@ -289,17 +289,31 @@ private fun DiscoveryProgressPanel(state: PureUiState, modifier: Modifier = Modi
                 stringResource(R.string.discovering_variants),
                 style = MaterialTheme.typography.titleMedium
             )
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                strokeCap = StrokeCap.Round
-            )
+            // Nothing has come back until the first path completes, so a determinate bar would sit
+            // truthfully at zero for the opening stretch and read as a hang. An indeterminate bar
+            // says "working, amount not yet known", which is what is actually true.
+            if (state.discovery.pathsCompleted == 0) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    strokeCap = StrokeCap.Round
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    strokeCap = StrokeCap.Round
+                )
+            }
             Text(
-                stringResource(
-                    R.string.discovery_progress_value,
-                    state.discovery.pathsCompleted,
-                    state.discovery.totalPaths.coerceAtLeast(1)
-                ),
+                if (state.discovery.pathsCompleted == 0) {
+                    stringResource(R.string.discovery_progress_starting, state.discovery.totalPaths)
+                } else {
+                    stringResource(
+                        R.string.discovery_progress_value,
+                        state.discovery.pathsCompleted,
+                        state.discovery.totalPaths.coerceAtLeast(1)
+                    )
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -348,10 +362,14 @@ private fun VariantResults(
         // A thin live strip keeps the still-running scan visible without pushing the results the
         // user can already act on off the screen.
         AnimatedVisibility(visible = state.discoveringVariants) {
-            LinearProgressIndicator(
-                progress = { state.discovery.fraction },
-                modifier = Modifier.fillMaxWidth().height(3.dp)
-            )
+            if (state.discovery.pathsCompleted == 0) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+            } else {
+                LinearProgressIndicator(
+                    progress = { state.discovery.fraction },
+                    modifier = Modifier.fillMaxWidth().height(3.dp)
+                )
+            }
         }
         // A throttled scan returns a real but partial matrix. Saying so is the honest option:
         // silently showing a subset would look like the complete answer.
@@ -372,8 +390,11 @@ private fun VariantResults(
             onResetFilters = onResetFilters,
             onRefresh = viewModel::discoverVariants
         )
+        // The running scan is already reported by the strip above, and a pull-to-refresh restarts
+        // the scan from its full-screen progress panel. Leaving the indicator latched on would hover
+        // it over the first result for the whole scan instead of retracting after the gesture.
         PullToRefreshBox(
-            isRefreshing = state.discoveringVariants,
+            isRefreshing = false,
             onRefresh = viewModel::discoverVariants,
             state = rememberPullToRefreshState(),
             modifier = Modifier.fillMaxSize()

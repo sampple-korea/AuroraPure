@@ -216,4 +216,5 @@
     <string name="discovery_incomplete">Google Play throttled part of this scan, so the list may be incomplete.</string>
     <string name="action_rescan">Scan again</string>
     <string name="loading_app">Loading app information…</string>
+    <string name="discovery_progress_starting">Checking %1$d delivery paths</string>
 </resources>

@@ -22,7 +22,7 @@ Aurora Pure는 Google Play가 제공하는 APK 파일을 저장하는 다운로�
   <img src="docs/screenshots/cli-en.png" width="32%" alt="Aurora Pure 대화형 PC CLI">
 </p>
 
-위 Android 화면과 CLI 이미지는 1.4.0 릴리스 후보에서 직접 만들었습니다. Android 앱과 CLI는 영어·중국어 간체·일본어·한국어를 모두 지원합니다.
+위 Android 화면과 CLI 이미지는 1.4.1 릴리스 후보에서 직접 만들었습니다. Android 앱과 CLI는 영어·중국어 간체·일본어·한국어를 모두 지원합니다.
 
 ## 다운로드
 
@@ -34,13 +34,13 @@ Aurora Pure는 Google Play가 제공하는 APK 파일을 저장하는 다운로�
 
 | 플랫폼 | 릴리스 파일 | 요구 사항 |
 | --- | --- | --- |
-| Android | `AuroraPure-1.4.0.apk` | Android 10 / API 29 이상 |
-| Linux·macOS CLI | `aurora-pure-cli-1.4.0.tar` 또는 `.zip` | Java 21 이상 |
-| Windows CLI | `aurora-pure-cli-1.4.0.zip` | Java 21 이상, `bin\aurora-pure.bat` 실행 |
+| Android | `AuroraPure-1.4.1.apk` | Android 10 / API 29 이상 |
+| Linux·macOS CLI | `aurora-pure-cli-1.4.1.tar` 또는 `.zip` | Java 21 이상 |
+| Windows CLI | `aurora-pure-cli-1.4.1.zip` | Java 21 이상, `bin\aurora-pure.bat` 실행 |
 
 Aurora Pure는 파일만 다운로드합니다. 받은 앱의 설치는 Android 파일 관리자나 호환되는 분할 APK 설치 도구에서 별도로 수행합니다.
 
-## 1.4.0 핵심 기능
+## 1.4.1 핵심 기능
 
 - 앱 이름, 패키지명, Google Play URL, 공유받은 Play 링크 검색
 - 앱 아이콘, 개발자, 패키지명, 버전 정보, 설명 표시
@@ -72,7 +72,7 @@ Android에서 앱을 열면 ARM64, ARM32, x86_64, x86과 7개 표준 DPI의 전�
 
 **Universal** 행은 발견된 최신 세트를 버전 코드가 섞이지 않게 묶습니다. 네 ABI 계열을 모두 조회하되 해당 앱에 Play가 APK를 제공하지 않는 계열은 꾸며내지 않고 제외하며, 실제 포함된 계열을 그대로 표시합니다. 조회가 끝난 뒤에도 자동 선택하지 않으며 사용자가 결과를 직접 고릅니다. 여러 split APK를 변조해 가짜 단일 APK로 합치지는 않습니다.
 
-Google Play에는 기기 기능이나 그래픽 텍스처 형식 같은 추가 타기팅도 존재할 수 있습니다. 1.4.0이 명시적으로 다루는 범위는 ABI, 화면 밀도, Android 버전, 언어 차원입니다.
+Google Play에는 기기 기능이나 그래픽 텍스처 형식 같은 추가 타기팅도 존재할 수 있습니다. 1.4.1이 명시적으로 다루는 범위는 ABI, 화면 밀도, Android 버전, 언어 차원입니다.
 
 ## 저장 형식
 

@@ -214,4 +214,5 @@
     <string name="discovery_incomplete">Google Play 限制了部分扫描请求，列表可能不完整。</string>
     <string name="action_rescan">重新扫描</string>
     <string name="loading_app">正在载入应用信息…</string>
+    <string name="discovery_progress_starting">正在检查 %1$d 条分发路径</string>
 </resources>

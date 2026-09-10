@@ -79,6 +79,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     private var activeJob: Job? = null
     private var discoveryJob: Job? = null
     private var searchJob: Job? = null
+    private var requestedPackage: String? = null
     private var activeTaskId: String? = null
     private var cancelRequestedTaskId: String? = null
     private var foreground = true
@@ -170,8 +171,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openDetails(packageName: String) {
         discoveryJob?.cancel()
-        // A cached summary paints the header immediately, so opening an app is never a blank screen
-        // waiting on the network.
+        // The package the user is waiting on, which is not the same thing as the package currently
+        // shown: opening an app by link has nothing on screen yet. A stale response is discarded by
+        // comparing against this, never against the selection, so a first-ever open still lands.
+        requestedPackage = packageName
+        // A cached summary paints the header immediately, so opening an app from a search result is
+        // never a blank screen waiting on the network.
         val cached = gateway.cachedDetails(packageName)
             ?: _uiState.value.results.firstOrNull { it.packageName == packageName }
         _uiState.update {
@@ -181,6 +186,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 selectedVariantId = "",
                 discovery = DiscoveryProgress(),
                 discoveryFailed = false,
+                discoveryIncomplete = false,
                 screen = Screen.DETAILS
             )
         }
@@ -189,21 +195,22 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             var discoverAfterLoading = false
             runCatching { gateway.details(packageName) }
                 .onSuccess { app ->
+                    if (requestedPackage != packageName) return@onSuccess
                     discoverAfterLoading = app.isFree
-                    // Tapping a second result before the first resolves must not let the slower
-                    // response overwrite the app the user is actually looking at.
-                    _uiState.update {
-                        if (it.selected?.packageName != packageName) it else it.copy(selected = app)
-                    }
+                    _uiState.update { it.copy(selected = app) }
                 }
                 .onFailure {
-                    if (cached == null && _uiState.value.selected == null) {
+                    if (requestedPackage != packageName) return@onFailure
+                    // With nothing to show, staying on an empty details screen would strand the
+                    // user; with a cached summary already on screen, the message is enough.
+                    if (_uiState.value.selected == null) {
+                        requestedPackage = null
                         _uiState.update { state -> state.copy(screen = Screen.SEARCH) }
                     }
                     showError(it)
                 }
             setBusy(false)
-            if (discoverAfterLoading && _uiState.value.selected?.packageName == packageName) {
+            if (discoverAfterLoading && requestedPackage == packageName) {
                 discoverVariants()
             }
         }
@@ -695,7 +702,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun navigateBack(): Boolean {
         val current = _uiState.value.screen
         if (current == Screen.SEARCH) return false
-        if (current == Screen.DETAILS) discoveryJob?.cancel()
+        if (current == Screen.DETAILS) {
+            discoveryJob?.cancel()
+            requestedPackage = null
+        }
         _uiState.update {
             it.copy(screen = if (current == Screen.ABOUT) Screen.SETTINGS else Screen.SEARCH)
         }

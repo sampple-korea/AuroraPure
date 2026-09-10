@@ -27,9 +27,17 @@ class CliPolicyTest {
                 val exitCode = CommandLine(RootCommand())
                     .setOut(PrintWriter(output))
                     .setErr(PrintWriter(errors))
+                    // Picocli styles usage help whenever it believes the environment supports ANSI,
+                    // which splits "aurora-pure search" across escape sequences. Forcing it off
+                    // keeps this assertion about the help text rather than about the terminal the
+                    // test happens to run in.
+                    .setColorScheme(CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.OFF))
                     .execute(command, "--help")
                 assertEquals("$command help must exit successfully", 0, exitCode)
-                assertTrue(output.toString().contains("Usage: aurora-pure $command"))
+                assertTrue(
+                    "$command help must name its usage line",
+                    output.toString().contains("Usage: aurora-pure $command")
+                )
                 assertTrue(errors.toString().isBlank())
             }
     }

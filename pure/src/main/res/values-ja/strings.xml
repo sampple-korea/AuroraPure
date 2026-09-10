@@ -214,4 +214,5 @@
     <string name="discovery_incomplete">Google Play がスキャンの一部を制限したため、一覧が完全でない可能性があります。</string>
     <string name="action_rescan">再スキャン</string>
     <string name="loading_app">アプリ情報を読み込んでいます…</string>
+    <string name="discovery_progress_starting">配信経路 %1$d 件を確認中</string>
 </resources>

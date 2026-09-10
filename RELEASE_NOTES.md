@@ -1,266 +1,35 @@
-# Aurora Pure 1.4.0
+# Aurora Pure 1.4.1
 
-> **This release is signed with a new key.** Android will refuse to install it over
-> 1.3.0 or earlier. Uninstall the previous version first, then install this APK.
-> Downloaded APK files in your save folder are not affected; download history kept
-> inside the app is lost with the uninstall.
->
-> Signing certificate SHA-256:
-> `2d9fe75ab6d98fdaf54898f3cbe52b6ab1ebaff946034aa1c4bd7bd5f81e35f8`
-> Every 1.4.0 and later build carries this certificate. Verify it with
-> `apksigner verify --print-certs AuroraPure-1.4.0.apk` before installing.
+Fixes three defects that shipped in 1.4.0.
 
-## Results arrive while the scan runs
+> Still signed with the key introduced in 1.4.0. Coming from 1.3.0 or earlier,
+> uninstall first. Coming from 1.4.0, this installs over it normally.
 
-Opening an app starts a complete scan of every ABI x DPI x Android tier Google Play
-delivers. That scan previously held back every result until all 28 delivery paths had
-finished, so the first usable row appeared only at the end.
+## Opening an app by link no longer hangs
 
-Each probe is now published the moment Play answers it. Measured on an Android 16
-emulator across three runs, the first selectable result appears after 15.3 s, 16.2 s,
-and 24.6 s, against a full scan of roughly 50 s that had to be waited out in full
-before. The complete scan still takes the same time - it is the same work - and a
-download can now start as soon as a suitable result appears, without waiting for it.
+A Play link, a shared listing, or a pasted package name opened a details screen that
+loaded forever. The metadata request actually succeeded in under two seconds; a guard
+meant to stop a slow response from overwriting a different app also discarded the very
+first response, because nothing was on screen yet to compare it against. The guard now
+tracks the package the user asked for rather than the one already displayed.
 
-Scan progress is reported as a real fraction of the known path count instead of an
-open-ended spinner.
+## Scan progress reads honestly again
 
-## Fewer requests, and recovery when Play throttles
+- The pull-to-refresh indicator stayed latched on for the whole scan, hovering over the
+  first result. It now retracts after the gesture; the running scan is reported by the
+  progress strip above the list.
+- The progress bar sat at a truthful but discouraging 0% until the first delivery path
+  completed, roughly twenty seconds in, which looked like a hang. Until something has
+  actually come back it is indeterminate, which is what is true, and switches to a real
+  fraction once paths start completing.
 
-- Base APK split metadata is read once per distinct delivered APK instead of once per
-  probe. A scan of Termux now reads 2 base APKs rather than 28, removing roughly a
-  hundred HTTP range requests and their mobile data.
-- An HTTP 429 from Google Play now renews the anonymous session automatically and
-  retries, instead of leaving the scan failed until Reconnect was pressed by hand.
-  A path that is still throttled afterwards stops on its own, and the scan says it is
-  incomplete rather than presenting a partial matrix as the whole picture.
-- Protocol requests have an upper time bound. Connect and read timeouts only limit
-  individual socket operations, so a trickling response could previously hang a
-  metadata request indefinitely.
+## Documentation and tests
 
-## A smoother interface
-
-- Record loading and progress persistence moved off the main thread. Startup no longer
-  parses stored history inline, and a running download no longer serialises its record
-  list to JSON on the UI thread once a second.
-- Search results, app details, and the delivery scan reuse one warm connection pool.
-
-## Redesign
-
-- A new colour system replaces the stock Material palette, with full light and dark
-  schemes and Material You available as an opt-in.
-- Typography, shape, and spacing are tuned for dense technical lists; package names,
-  DPI values, and byte counts are set monospaced so they line up down a column.
-- Fixed a theme bug that hardcoded a light status bar, leaving the status bar icons
-  invisible whenever the app ran in dark mode.
-
-## Interaction
-
-- Bottom navigation for Search, Downloads, and Settings, with a badge for running
-  transfers.
-- Search submits from the keyboard, clears from the field, and remembers recent
-  queries. The clipboard is offered only when it holds something, and is inspected
-  without triggering Android's paste notification.
-- Empty and failed states explain what happened and offer the next step. A failed scan
-  retries in place.
-- Destructive actions confirm first, and error messages carry a retry action.
-- Download cards lead with state, progress, transfer speed, and estimated time
-  remaining, with profile metadata behind one expander.
-- Saved files can be opened, not only shared. Play web links open the app. A long press
-  copies a package name. Filters show a reset control. Touch targets meet 48 dp.
-
-## Unchanged
-
-Aurora Pure still downloads only. It does not install, manage installed apps, or update
-anything automatically, and it requests only INTERNET and ACCESS_NETWORK_STATE.
+- All README screenshots are regenerated from this build. The previous set still showed
+  the 1.3.0 interface.
+- The CLI help test no longer depends on whether the environment supports ANSI. Picocli
+  styles usage help when it detects a terminal, which split the command name across
+  escape sequences and failed the assertion anywhere the test ran with a TTY.
 
 ---
 
-# Aurora Pure 1.3.0
-
-This release redesigns Android result browsing for large delivery matrices while preserving complete, result-first discovery.
-
-## Compact result browser
-
-- Defaults to the newest numeric `versionCode` instead of opening all returned versions at once.
-- Adds always-visible Version, Architecture, and DPI filter tiles populated only from values observed in the completed scan.
-- Keeps collapsed rows to version, architecture, and DPI; tapping a row reveals minimum Android, tested API tiers, APK count, size, and exact observed combinations.
-- Shows all versions on demand, ordered newest first, with older version sections collapsed until opened.
-- Clears a selection when filters hide it so the fixed action bar can never download an invisible result.
-
-## Faster interaction
-
-- Keeps the selected result summary and Download button fixed at the bottom while dozens of results scroll independently.
-- Retains precise live ABI/DPI/Android progress during discovery without persistent internal-policy explanations in the main flow.
-- Compacts multi-DPI and Universal rows into a readable range/count summary while preserving the full values in expanded details.
-- Simplifies download-plan review to actionable delivery data and warnings.
-
-## Global documentation and verification
-
-- Adds complete English, Korean, Japanese, and Simplified Chinese strings for the new result browser.
-- Refreshes current Android and CLI screenshots and all four READMEs for the new interaction model.
-- Adds focused tests for combined filters and descending numeric version grouping.
-- Verified against a live 84-profile Google Play scan that returned 30 selectable results across versions 7.2, 7.1, and 6.0.
-
----
-
-# Aurora Pure 1.2.1
-
-This release removes pre-discovery ABI and DPI selection. Opening an app now discovers the complete supported delivery matrix first and lets the user choose from actual Google Play results.
-
-## Result-first discovery
-
-- App details automatically probe ARM64, ARM32, x86_64, and x86 across 120/160/213/240/320/480/640dpi.
-- Each ABI × DPI path follows the Android tiers returned by Play, starting at API 36 and stepping through real APK `minSdk` boundaries.
-- No result is selected automatically; the user chooses an observed delivery result or the Universal latest-set row after discovery.
-- Results are divided into version sections ordered by numeric `versionCode`, newest first; `versionName` remains a display label and is never sorted lexically.
-- Unsupported ABI/DPI paths are omitted without hiding authentication, rate-limit, or protocol errors.
-- Equivalent profiles are grouped only when their version and APK byte identities match.
-
-## Clear progress and faster scans
-
-- Up to four independent ABI × DPI paths are queried concurrently while Android-version traversal within each path remains ordered.
-- The Android loading card shows the active ABI, DPI, Android/API profiles and completed probe count.
-- Removed ABI/DPI controls and repetitive internal-policy explanations from Android details and settings.
-- Added per-artifact cache locking so concurrent profiles cannot race while storing the same base APK.
-- Authentication failures are associated with the request that produced them instead of a shared last-response value.
-
-## CLI behavior
-
-- Guided mode proceeds directly from app selection to complete discovery without architecture, DPI, or API pre-prompts.
-- `variants` and `download` scan all ABIs and standard DPI buckets by default.
-- `--architecture`, `--density`, and `--android-api` remain explicit advanced filters for scripts that intentionally want a smaller scope.
-- Removed obsolete persistent discovery-filter defaults from CLI configuration.
-
-## Verification performed for this release
-
-- Android unit tests and Lint; CLI unit tests and distribution launch checks.
-- Live unfiltered Google Play scan of 84 profiles, producing 30 selectable delivery results across seven DPI buckets and multiple Android tiers.
-- Confirmed that unavailable x86/x86_64 deliveries are omitted while returned ARM64/ARM32 combinations remain selectable.
-
----
-
-# Aurora Pure 1.2.0
-
-This release makes Aurora Pure global, adds a full desktop CLI, and replaces synthetic variant labels with selectable Google Play delivery results.
-
-## Actual ABI, DPI, and Android combinations
-
-- Added Universal ABI mode that probes ARM64, ARM32, x86_64, and x86 and includes every architecture actually delivered for the selected app.
-- Added current, all-standard, and individual 120/160/213/240/320/480/640dpi scopes.
-- Probes Android API 36 first and follows each ABI × DPI path through real APK `minSdk` boundaries.
-- Groups only responses with the same version and actual Play artifact identities.
-- Preserves each observed `ABI × DPI × Android API` tuple in the selectable Android cards and human-readable CLI output.
-- Treats an app-unavailable architecture as an absent result instead of failing the whole Universal scan; authentication and rate-limit failures still remain visible.
-- Lists version, ABI, minimum Android, observed DPI, tested Android API profiles, APK count, and size as selectable rows.
-- Keeps the Universal-scope row distinct from a Combined row for other multi-variant scopes.
-- Never mixes different version codes or rewrites split APKs into a fabricated monolithic APK.
-
-## APK output and performance
-
-- Split downloads now produce `.apks` archives containing root-level APK files only.
-- Removed `download-info.json`, `SHA256SUMS.txt`, icons, and all other non-APK archive entries.
-- Removed `_all-languages` from output names because every advertised language split is the normal default.
-- Downloads up to four unique APKs concurrently with 256KiB buffers.
-- Reuses hash-identical artifacts across profiles and preserves safe HTTP Range resume behavior.
-- Reopens the final `.apk` or `.apks` and verifies every expected SHA-256 before completion.
-
-## Desktop CLI
-
-- Added native-feeling guided operation when run without a subcommand.
-- Added `search`, `info`, `variants`/`plan`, `download`, `verify`, `history`, `config`, and `doctor` commands.
-- Supports all architecture, density, Android-tier, all-language, verification, resume, and output features available in the Android product.
-- Supports structured JSON output for automation while keeping progress on stderr.
-- Every subcommand exposes operand-free `--help`, including `download` and `verify`.
-- Stores no auth token, anonymous account, cookie, or signed download URL in configuration or history.
-- Ships portable Gradle application distributions for Linux, macOS, and Windows; Java 21 or newer is required.
-
-## Global interface
-
-- English is now the primary README and project language.
-- Added complete Simplified Chinese and Japanese Android/CLI translations.
-- Retained complete Korean support with dedicated Korean documentation.
-- Added separate English, Korean, Simplified Chinese, and Japanese READMEs.
-
-## Verification performed for this release
-
-- Android unit tests and Lint.
-- CLI unit tests for profile matrices, URL/package parsing, safe resume, configuration, translations, and archive policy.
-- Real Google Play metadata and anonymous delivery discovery showing distinct Android delivery tiers.
-- Real 168-APK fixture integration through content de-duplication, APK-only `.apks` export, APK signature/package/version validation, and final archive verification.
-- Final release manifest permission and source-boundary inspection.
-
----
-
-# Aurora Pure 1.1.0
-
-모든 언어팩과 선택 가능한 64/32비트 제공 프로파일을 추가한 릴리스입니다.
-
-## 새 기능
-
-- 기본값을 **64 + 32비트**로 설정하고, 64비트 전용·32비트 전용 선택 제공
-- 각 CPU 아키텍처를 별도 Google Play 기기 프로파일로 조회
-- base APK의 bundletool `splits*.xml` 선언을 읽어 현재 전달 모듈의 모든 언어 split 탐색
-- 한 번의 다중 언어 요청 후 누락된 언어만 제한적으로 개별 보충
-- 64/32비트의 완전한 APK 세트를 `variants/64bit`와 `variants/32bit`에 독립 보존
-- 서로 동일한 제공 파일은 검증된 메타데이터와 해시가 일치할 때만 로컬 복사로 재사용
-- 다운로드 계획과 `download-info.json`에 요청 로케일, 파일별 로케일 및 아키텍처 프로파일 기록
-
-## 정확성과 안전성
-
-- 기능 모듈별 언어 split 및 base/master에 이미 포함된 언어의 빈 split 선언 처리
-- 다운로드 응답을 전체 protobuf로 해석해 파일 목록 누락 방지
-- 원격 base APK는 ZIP 중앙 디렉터리와 split XML 범위만 우선 읽고, Range 미지원 시 검증된 전체 파일로 안전하게 대체
-- 언어 split 하나라도 누락되면 불완전한 묶음 내보내기 차단
-- 서로 다른 앱 버전이 64/32비트 프로파일에 제공되면 결합 차단
-- Google Play HTTP 오류를 인증·요청 제한·기타 상태로 구분해 표시
-
-## 실제 릴리스 검증
-
-- Android 16 x86_64 환경에서 Google OTP 7.2(7002011)로 64/32비트 프로파일 동시 시험
-- 선언 로케일 82개, 언어 APK 164개, 총 APK 168개 다운로드 성공
-- 최종 ZIP 170개 엔트리 검사 및 `SHA256SUMS.txt` 전체 일치
-- 모든 APK 무결성·서명·패키지명·버전 검증 통과
-
-“모든 언어팩”은 현재 선택한 제공 프로파일과 현재 전달되는 모듈이 앱 메타데이터에 선언한 언어를 뜻합니다. 온디맨드 모듈, Play Asset Delivery, 실행 후 추가 데이터는 포함하지 않습니다.
-
----
-
-# Aurora Pure 1.0.0
-
-첫 공개 릴리스입니다.
-
-## 포함된 기능
-
-- 한국어·영어 전체 UI와 한국어 기본 문서
-- 이름, 패키지명, Play 링크 검색 및 앱 상세 정보
-- 익명 Google Play 연결과 다운로드 직전 최신 제공 결과 재확인
-- 단일 APK 원본 저장, 분할/의존 APK ZIP 보존
-- 작업 하나씩 실행하는 대기열, 일시정지, 안전한 이어받기와 취소
-- APK 해시·암호학적 서명·패키지·버전·분할 구성 검증
-- 완성 파일을 다시 읽는 최종 APK/ZIP 검증
-- MediaStore의 `Download/AuroraPure` 및 SAF 사용자 지정 폴더
-- 로컬 기록, 공유, 기록/파일 삭제 분리
-- 시스템·밝게·어둡게 테마와 선택적 화면 켜짐 유지
-
-## 제거된 기능
-
-앱 설치, 루트·Shizuku 설치, 설치된 앱 목록, 업데이트 관리, 자동 업데이트, 예약 또는 백그라운드 다운로드, 개인 계정, 추천·리뷰 작성·분석·광고를 포함하지 않습니다.
-
-## 알려진 제한
-
-- “최신”은 현재 익명 세션과 기기 조건에 Google Play가 제공하는 버전입니다.
-- 분할 APK는 원본 보존용 ZIP이며 ZIP 자체를 설치 파일로 표현하지 않습니다.
-- 실행 후 별도로 받는 자산·게임 데이터·계정 데이터는 저장하지 않습니다.
-- 앱 화면이 완전히 보이지 않으면 다운로드가 일시정지되고 자동 재개되지 않습니다.
-- 비공식 Google Play API와 외부 익명 인증 서비스의 변경 또는 제한으로 기능이 중단될 수 있습니다.
-
-## 검증 범위
-
-- 실제 Google Play v2 전용 단일 APK와 분할 APK 2개·4개 전달 경로
-- 전경 이탈 일시정지와 Range 이어받기
-- APK별 해시·서명·패키지·버전 확인
-- ZIP 엔트리와 최종 저장본 SHA-256 재검증
-- 화면 회전과 중복 실행 방지
-- 제거 대상 권한·설치/업데이트 코드·의존성 부재
-- Android 단위/통합 테스트, Lint, R8 릴리스 빌드
