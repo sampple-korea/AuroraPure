@@ -1,3 +1,81 @@
+# Aurora Pure 1.4.0
+
+> **This release is signed with a new key.** Android will refuse to install it over
+> 1.3.0 or earlier. Uninstall the previous version first, then install this APK.
+> Downloaded APK files in your save folder are not affected; download history kept
+> inside the app is lost with the uninstall.
+>
+> Signing certificate SHA-256:
+> `2d9fe75ab6d98fdaf54898f3cbe52b6ab1ebaff946034aa1c4bd7bd5f81e35f8`
+> Every 1.4.0 and later build carries this certificate. Verify it with
+> `apksigner verify --print-certs AuroraPure-1.4.0.apk` before installing.
+
+## Results arrive while the scan runs
+
+Opening an app starts a complete scan of every ABI x DPI x Android tier Google Play
+delivers. That scan previously held back every result until all 28 delivery paths had
+finished, so the first usable row appeared only at the end.
+
+Each probe is now published the moment Play answers it. Measured on an Android 16
+emulator across three runs, the first selectable result appears after 15.3 s, 16.2 s,
+and 24.6 s, against a full scan of roughly 50 s that had to be waited out in full
+before. The complete scan still takes the same time - it is the same work - and a
+download can now start as soon as a suitable result appears, without waiting for it.
+
+Scan progress is reported as a real fraction of the known path count instead of an
+open-ended spinner.
+
+## Fewer requests, and recovery when Play throttles
+
+- Base APK split metadata is read once per distinct delivered APK instead of once per
+  probe. A scan of Termux now reads 2 base APKs rather than 28, removing roughly a
+  hundred HTTP range requests and their mobile data.
+- An HTTP 429 from Google Play now renews the anonymous session automatically and
+  retries, instead of leaving the scan failed until Reconnect was pressed by hand.
+  A path that is still throttled afterwards stops on its own, and the scan says it is
+  incomplete rather than presenting a partial matrix as the whole picture.
+- Protocol requests have an upper time bound. Connect and read timeouts only limit
+  individual socket operations, so a trickling response could previously hang a
+  metadata request indefinitely.
+
+## A smoother interface
+
+- Record loading and progress persistence moved off the main thread. Startup no longer
+  parses stored history inline, and a running download no longer serialises its record
+  list to JSON on the UI thread once a second.
+- Search results, app details, and the delivery scan reuse one warm connection pool.
+
+## Redesign
+
+- A new colour system replaces the stock Material palette, with full light and dark
+  schemes and Material You available as an opt-in.
+- Typography, shape, and spacing are tuned for dense technical lists; package names,
+  DPI values, and byte counts are set monospaced so they line up down a column.
+- Fixed a theme bug that hardcoded a light status bar, leaving the status bar icons
+  invisible whenever the app ran in dark mode.
+
+## Interaction
+
+- Bottom navigation for Search, Downloads, and Settings, with a badge for running
+  transfers.
+- Search submits from the keyboard, clears from the field, and remembers recent
+  queries. The clipboard is offered only when it holds something, and is inspected
+  without triggering Android's paste notification.
+- Empty and failed states explain what happened and offer the next step. A failed scan
+  retries in place.
+- Destructive actions confirm first, and error messages carry a retry action.
+- Download cards lead with state, progress, transfer speed, and estimated time
+  remaining, with profile metadata behind one expander.
+- Saved files can be opened, not only shared. Play web links open the app. A long press
+  copies a package name. Filters show a reset control. Touch targets meet 48 dp.
+
+## Unchanged
+
+Aurora Pure still downloads only. It does not install, manage installed apps, or update
+anything automatically, and it requests only INTERNET and ACCESS_NETWORK_STATE.
+
+---
+
 # Aurora Pure 1.3.0
 
 This release redesigns Android result browsing for large delivery matrices while preserving complete, result-first discovery.
