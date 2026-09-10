@@ -2,17 +2,12 @@
 <!-- SPDX-FileCopyrightText: 2026 Aurora Pure contributors -->
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <resources>
-    <!--
-      The window is only ever the frame around a Compose surface: it supplies the cold-start
-      background and the system-bar treatment. Bar icon colours are set from the resolved theme at
-      runtime, because the in-app light/dark choice can differ from the system setting.
-    -->
-    <style name="Theme.AuroraPure" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.AuroraPure" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>

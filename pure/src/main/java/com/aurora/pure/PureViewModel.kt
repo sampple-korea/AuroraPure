@@ -13,17 +13,21 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.pure.data.AppSummary
 import com.aurora.pure.data.ArchitectureChoice
+import com.aurora.pure.data.ConfirmAction
 import com.aurora.pure.data.ConnectionState
+import com.aurora.pure.data.DiscoveryProgress
 import com.aurora.pure.data.DownloadConfirmation
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.data.DownloadRecord
 import com.aurora.pure.data.DensityChoice
+import com.aurora.pure.data.MessageAction
+import com.aurora.pure.data.PendingConfirm
 import com.aurora.pure.data.PureUiState
 import com.aurora.pure.data.Screen
 import com.aurora.pure.data.TaskStatus
+import com.aurora.pure.data.UiMessage
 import com.aurora.pure.download.DownloadCoordinator
 import com.aurora.pure.play.AuroraGateway
-import com.aurora.pure.play.DeviceProfile
 import com.aurora.pure.storage.ExportRepository
 import com.aurora.pure.storage.RecordRepository
 import java.net.SocketException
@@ -34,9 +38,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -47,27 +54,56 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     private val exporter = ExportRepository(application)
     private val coordinator = DownloadCoordinator(application, gateway.httpClient, recordRepository)
 
-    private val restoredRecords = recordRepository.load()
     private val _uiState = MutableStateFlow(
         PureUiState(
-            records = restoredRecords.sortedByDescending { it.createdAt },
             architectureChoice = ArchitectureChoice.UNIVERSAL,
             densityChoice = DensityChoice.ALL,
             themeMode = recordRepository.themeMode,
+            dynamicColor = recordRepository.dynamicColor,
             keepScreenOn = recordRepository.keepScreenOn,
             customFolderUri = recordRepository.customFolderUri
         )
     )
     val uiState: StateFlow<PureUiState> = _uiState.asStateFlow()
 
+    /**
+     * Persisting the record list means serialising every record to JSON. A running download used to
+     * do that on the main thread once a second; requests are now conflated onto an IO worker, so a
+     * burst of progress ticks costs one write of the newest snapshot rather than one write each.
+     */
+    private val persistRequests = MutableSharedFlow<List<DownloadRecord>>(
+        replay = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
     private var activeJob: Job? = null
     private var discoveryJob: Job? = null
+    private var searchJob: Job? = null
     private var activeTaskId: String? = null
     private var cancelRequestedTaskId: String? = null
     private var foreground = true
 
     init {
-        recordRepository.save(restoredRecords)
+        viewModelScope.launch(Dispatchers.IO) {
+            persistRequests.collectLatest(recordRepository::save)
+        }
+        viewModelScope.launch {
+            // Reading and re-parsing the stored history is disk work, so the first frame is no
+            // longer waiting on it. Only the Downloads screen shows records, and it renders a
+            // restoring state until they arrive.
+            val restored = withContext(Dispatchers.IO) {
+                val records = recordRepository.load().sortedByDescending(DownloadRecord::createdAt)
+                recordRepository.save(records)
+                records to recordRepository.recentQueries
+            }
+            _uiState.update {
+                it.copy(
+                    records = restored.first,
+                    recentQueries = restored.second,
+                    restoringRecords = false
+                )
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) { exporter.cleanupAbandonedExports() }
     }
 
@@ -75,27 +111,56 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(query = value) }
     }
 
-    fun submitSearch() {
-        val input = _uiState.value.query.trim()
-        if (input.isBlank() || _uiState.value.busy) return
-        parsePackageName(input)?.let {
+    fun clearQuery() {
+        _uiState.update { it.copy(query = "", results = emptyList(), searched = false) }
+    }
+
+    fun submitSearch(input: String = _uiState.value.query) {
+        val trimmed = input.trim()
+        if (trimmed.isBlank()) return
+        if (trimmed != _uiState.value.query) setQuery(trimmed)
+        parsePackageName(trimmed)?.let {
+            rememberQuery(trimmed)
             openDetails(it)
             return
         }
-        viewModelScope.launch {
-            setBusy(true)
-            runCatching { gateway.search(input) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            _uiState.update { it.copy(searching = true) }
+            runCatching { gateway.search(trimmed) }
                 .onSuccess { results ->
+                    rememberQuery(trimmed)
                     _uiState.update {
                         it.copy(
                             results = results,
-                            message = if (results.isEmpty()) string(R.string.no_results) else ""
+                            searched = true,
+                            message = if (results.isEmpty()) {
+                                UiMessage(string(R.string.no_results))
+                            } else {
+                                it.message
+                            }
                         )
                     }
                 }
-                .onFailure(::showError)
-            setBusy(false)
+                .onFailure { showError(it, MessageAction.RETRY_SEARCH) }
+            _uiState.update { it.copy(searching = false) }
+            searchJob = null
         }
+    }
+
+    private fun rememberQuery(query: String) {
+        val updated = (listOf(query) + _uiState.value.recentQueries)
+            .distinct()
+            .take(RecordRepository.MAX_RECENT_QUERIES)
+        if (updated == _uiState.value.recentQueries) return
+        _uiState.update { it.copy(recentQueries = updated) }
+        viewModelScope.launch(Dispatchers.IO) { recordRepository.recentQueries = updated }
+    }
+
+    fun removeRecentQuery(query: String) {
+        val updated = _uiState.value.recentQueries.filterNot { it == query }
+        _uiState.update { it.copy(recentQueries = updated) }
+        viewModelScope.launch(Dispatchers.IO) { recordRepository.recentQueries = updated }
     }
 
     fun acceptSharedText(text: String) {
@@ -104,27 +169,39 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openDetails(packageName: String) {
-        if (_uiState.value.busy) return
         discoveryJob?.cancel()
+        // A cached summary paints the header immediately, so opening an app is never a blank screen
+        // waiting on the network.
+        val cached = gateway.cachedDetails(packageName)
+            ?: _uiState.value.results.firstOrNull { it.packageName == packageName }
+        _uiState.update {
+            it.copy(
+                selected = cached,
+                variants = emptyList(),
+                selectedVariantId = "",
+                discovery = DiscoveryProgress(),
+                discoveryFailed = false,
+                screen = Screen.DETAILS
+            )
+        }
         viewModelScope.launch {
             setBusy(true)
             var discoverAfterLoading = false
             runCatching { gateway.details(packageName) }
                 .onSuccess { app ->
                     discoverAfterLoading = app.isFree
+                    // Tapping a second result before the first resolves must not let the slower
+                    // response overwrite the app the user is actually looking at.
                     _uiState.update {
-                        it.copy(
-                            selected = app,
-                            variants = emptyList(),
-                            selectedVariantId = "",
-                            discoveryProbeCount = 0,
-                            discoveryProbeDescription = "",
-                            screen = Screen.DETAILS,
-                            message = ""
-                        )
+                        if (it.selected?.packageName != packageName) it else it.copy(selected = app)
                     }
                 }
-                .onFailure(::showError)
+                .onFailure {
+                    if (cached == null && _uiState.value.selected == null) {
+                        _uiState.update { state -> state.copy(screen = Screen.SEARCH) }
+                    }
+                    showError(it)
+                }
             setBusy(false)
             if (discoverAfterLoading && _uiState.value.selected?.packageName == packageName) {
                 discoverVariants()
@@ -133,12 +210,12 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun prepareDownload() {
-        val selected = _uiState.value.selected ?: return
-        if (!selected.isFree || _uiState.value.busy) return
         val state = _uiState.value
-        val variant = state.variants.firstOrNull { it.id == state.selectedVariantId }
+        val selected = state.selected ?: return
+        if (!selected.isFree || state.busy) return
+        val variant = state.selectedVariant
         if (variant == null) {
-            discoverVariants()
+            if (!state.discoveringVariants) discoverVariants()
             return
         }
         val architectureChoice = variant.downloadArchitectureChoice
@@ -162,11 +239,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                             "architecture=${plan.architectureChoice}, apkCount=${plan.artifacts.size}, " +
                             "bytes=${plan.totalBytes}"
                     )
-                    _uiState.update { it.copy(connection = ConnectionState.CONNECTED) }
                     val changed = (selected.versionCode > 0 && plan.versionCode != selected.versionCode) ||
                         (selected.size > 0 && plan.totalBytes > 0 && selected.size != plan.totalBytes)
                     _uiState.update {
                         it.copy(
+                            connection = ConnectionState.CONNECTED,
                             confirmation = DownloadConfirmation(
                                 previous = selected,
                                 plan = plan,
@@ -195,65 +272,75 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun discoverVariants() {
         val selected = _uiState.value.selected ?: return
-        if (!selected.isFree || _uiState.value.busy) return
+        if (!selected.isFree) return
         discoveryJob?.cancel()
         discoveryJob = viewModelScope.launch {
-            setBusy(true)
             _uiState.update {
                 it.copy(
                     connection = ConnectionState.CONNECTING,
                     discoveringVariants = true,
+                    discoveryFailed = false,
+                    discoveryIncomplete = false,
                     variants = emptyList(),
                     selectedVariantId = "",
-                    discoveryProbeCount = 0,
-                    discoveryProbeDescription = "",
+                    discovery = DiscoveryProgress(),
                     architectureChoice = ArchitectureChoice.UNIVERSAL,
                     densityChoice = DensityChoice.ALL
                 )
             }
             try {
-                val variants = gateway.discoverVariants(selected.packageName) { completed, active ->
-                    _uiState.update { state ->
-                        if (state.selected?.packageName != selected.packageName) state else {
-                            state.copy(
-                                discoveryProbeCount = maxOf(
-                                    state.discoveryProbeCount,
-                                    completed
-                                ),
-                                discoveryProbeDescription = active
-                                    .takeIf { it.isNotEmpty() }
-                                    ?.joinToString("\n") { profile ->
-                                        listOf(
-                                            profile.primaryAbi,
-                                            "${profile.densityDpi} dpi",
-                                            "Android ${DeviceProfile.androidRelease(profile.sdkVersion)} / " +
-                                                "API ${profile.sdkVersion}"
-                                        ).joinToString(" · ")
-                                    }
-                                    ?: state.discoveryProbeDescription
-                            )
+                val result = gateway.discoverVariants(
+                    packageName = selected.packageName,
+                    onProgress = { progress ->
+                        _uiState.update { state ->
+                            if (state.selected?.packageName != selected.packageName) {
+                                state
+                            } else {
+                                state.copy(discovery = progress)
+                            }
+                        }
+                    },
+                    // Results land in the list as each independent path returns instead of after
+                    // the whole matrix finishes, so the first usable rows appear in a second or two.
+                    onPartialResults = { partial ->
+                        _uiState.update { state ->
+                            if (state.selected?.packageName != selected.packageName) {
+                                state
+                            } else {
+                                state.copy(
+                                    variants = partial,
+                                    connection = ConnectionState.CONNECTED,
+                                    selectedVariantId = state.selectedVariantId
+                                        .takeIf { id -> partial.any { it.id == id } }
+                                        .orEmpty()
+                                )
+                            }
                         }
                     }
-                }
+                )
                 if (_uiState.value.selected?.packageName == selected.packageName) {
                     _uiState.update {
                         it.copy(
                             connection = ConnectionState.CONNECTED,
-                            variants = variants,
-                            selectedVariantId = ""
+                            variants = result.variants,
+                            discoveryIncomplete = result.incomplete,
+                            selectedVariantId = it.selectedVariantId
+                                .takeIf { id -> result.variants.any { variant -> variant.id == id } }
+                                .orEmpty()
                         )
                     }
                 }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                _uiState.update { state -> state.copy(connection = ConnectionState.FAILED) }
-                showError(exception)
+                _uiState.update { state ->
+                    state.copy(connection = ConnectionState.FAILED, discoveryFailed = true)
+                }
+                showError(exception, MessageAction.RETRY_DISCOVERY)
             } finally {
                 if (_uiState.value.selected?.packageName == selected.packageName) {
                     _uiState.update { it.copy(discoveringVariants = false) }
                 }
-                setBusy(false)
                 discoveryJob = null
             }
         }
@@ -272,45 +359,70 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun confirmDownload() {
         val confirmation = _uiState.value.confirmation ?: return
         _uiState.update { it.copy(confirmation = null) }
-        acceptPlan(confirmation.plan)
+        viewModelScope.launch { acceptPlan(confirmation.plan) }
     }
 
     fun dismissConfirmation() {
         _uiState.update { it.copy(confirmation = null) }
     }
 
-    private fun acceptPlan(plan: DownloadPlan) {
+    fun requestConfirm(action: ConfirmAction, record: DownloadRecord? = null) {
+        _uiState.update { it.copy(pendingConfirm = PendingConfirm(action, record)) }
+    }
+
+    fun dismissConfirm() {
+        _uiState.update { it.copy(pendingConfirm = null) }
+    }
+
+    fun runPendingConfirm() {
+        val pending = _uiState.value.pendingConfirm ?: return
+        _uiState.update { it.copy(pendingConfirm = null) }
+        when (pending.action) {
+            ConfirmAction.CLEAR_HISTORY -> clearHistory()
+            ConfirmAction.CLEAR_TEMPORARY -> clearTemporaryFiles()
+            ConfirmAction.DELETE_OUTPUT -> pending.record?.let(::deleteOutput)
+            ConfirmAction.REMOVE_RECORD -> pending.record?.let(::removeRecord)
+            ConfirmAction.CANCEL_DOWNLOAD -> pending.record?.let(::cancel)
+        }
+    }
+
+    private suspend fun acceptPlan(plan: DownloadPlan) {
         val replacing = _uiState.value.records.firstOrNull { it.id == plan.id }
         if (replacing != null) {
             val replacement = plan.toRecord().copy(
                 id = replacing.id,
                 createdAt = replacing.createdAt
             )
-            viewModelScope.launch {
-                setBusy(true)
-                withContext(Dispatchers.IO) { recordRepository.deleteTaskFiles(replacing.id) }
-                replaceOrAdd(replacement)
-                _uiState.update { it.copy(screen = Screen.DOWNLOADS) }
-                setBusy(false)
-                if (activeJob == null && foreground) launchRecord(replacement)
-            }
+            setBusy(true)
+            withContext(Dispatchers.IO) { recordRepository.deleteTaskFiles(replacing.id) }
+            replaceOrAdd(replacement)
+            _uiState.update { it.copy(screen = Screen.DOWNLOADS) }
+            setBusy(false)
+            if (activeJob == null && foreground) launchRecord(replacement)
             return
         }
+        val fingerprint = plan.fingerprint()
         val existing = _uiState.value.records.firstOrNull {
-            it.planFingerprint == plan.fingerprint() && it.status == TaskStatus.COMPLETED
+            it.planFingerprint == fingerprint && it.status == TaskStatus.COMPLETED
         }
-        if (existing != null && recordRepository.outputExists(existing)) {
+        if (existing != null && withContext(Dispatchers.IO) { recordRepository.outputExists(existing) }) {
             _uiState.update {
-                it.copy(screen = Screen.DOWNLOADS, message = string(R.string.message_same_saved))
+                it.copy(
+                    screen = Screen.DOWNLOADS,
+                    message = UiMessage(string(R.string.message_same_saved))
+                )
             }
             return
         }
         val duplicate = _uiState.value.records.firstOrNull {
-            it.planFingerprint == plan.fingerprint() && it.status.isActive
+            it.planFingerprint == fingerprint && it.status.isActive
         }
         if (duplicate != null) {
             _uiState.update {
-                it.copy(screen = Screen.DOWNLOADS, message = string(R.string.message_already_queued))
+                it.copy(
+                    screen = Screen.DOWNLOADS,
+                    message = UiMessage(string(R.string.message_already_queued))
+                )
             }
             return
         }
@@ -361,23 +473,31 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
+            val rate = TransferRate()
             var lastUiUpdate = 0L
             var lastPersist = 0L
             val outcome = coordinator.execute(
                 latest,
                 onProgress = { bytes, files ->
                     val now = SystemClock.elapsedRealtime()
-                    if (now - lastUiUpdate >= 200 || bytes == latest.totalBytes) {
-                        val persist = now - lastPersist >= 1000 || bytes == latest.totalBytes
+                    if (now - lastUiUpdate >= UI_PROGRESS_INTERVAL_MS || bytes == latest.totalBytes) {
+                        val persist = now - lastPersist >= PERSIST_INTERVAL_MS || bytes == latest.totalBytes
+                        val speed = rate.sample(bytes, now)
                         updateRecord(record.id, persist) {
-                            it.copy(downloadedBytes = bytes, completedFiles = files)
+                            it.copy(
+                                downloadedBytes = bytes,
+                                completedFiles = files,
+                                bytesPerSecond = speed
+                            )
                         }
                         lastUiUpdate = now
                         if (persist) lastPersist = now
                     }
                 },
                 onVerifying = {
-                    updateRecord(record.id) { it.copy(status = TaskStatus.VERIFYING) }
+                    updateRecord(record.id) {
+                        it.copy(status = TaskStatus.VERIFYING, bytesPerSecond = 0)
+                    }
                 }
             )
 
@@ -395,22 +515,33 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                     outputName = exported.displayName,
                     outputSize = exported.size,
                     verification = outcome.verification.summary(),
+                    bytesPerSecond = 0,
                     error = ""
                 )
             }
-            recordRepository.deleteTaskFiles(record.id)
+            withContext(NonCancellable + Dispatchers.IO) {
+                recordRepository.deleteTaskFiles(record.id)
+            }
         } catch (exception: DownloadCoordinator.PauseRequestedException) {
-            updateRecord(record.id) { it.copy(status = TaskStatus.PAUSED, error = "") }
+            updateRecord(record.id) {
+                it.copy(status = TaskStatus.PAUSED, bytesPerSecond = 0, error = "")
+            }
         } catch (exception: DownloadCoordinator.CancelRequestedException) {
-            updateRecord(record.id) { it.copy(status = TaskStatus.CANCELLED, error = "") }
+            updateRecord(record.id) {
+                it.copy(status = TaskStatus.CANCELLED, bytesPerSecond = 0, error = "")
+            }
         } catch (exception: CancellationException) {
             if (cancelRequestedTaskId == record.id) {
                 withContext(NonCancellable + Dispatchers.IO) {
                     recordRepository.deleteTaskFiles(record.id)
                 }
-                updateRecord(record.id) { it.copy(status = TaskStatus.CANCELLED, error = "") }
+                updateRecord(record.id) {
+                    it.copy(status = TaskStatus.CANCELLED, bytesPerSecond = 0, error = "")
+                }
             } else {
-                updateRecord(record.id) { it.copy(status = TaskStatus.PAUSED, error = "") }
+                updateRecord(record.id) {
+                    it.copy(status = TaskStatus.PAUSED, bytesPerSecond = 0, error = "")
+                }
             }
             throw exception
         } catch (exception: Exception) {
@@ -419,7 +550,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                 "Download task failed (${exception.javaClass.simpleName}): ${safeMessage(exception)}"
             )
             updateRecord(record.id) {
-                it.copy(status = TaskStatus.FAILED, error = userMessage(exception))
+                it.copy(
+                    status = TaskStatus.FAILED,
+                    bytesPerSecond = 0,
+                    error = userMessage(exception)
+                )
             }
         } finally {
             activeTaskId = null
@@ -428,6 +563,33 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             if (foreground) {
                 currentRecords().firstOrNull { it.status == TaskStatus.QUEUED }?.let(::launchRecord)
             }
+        }
+    }
+
+    /** Smoothed so the reported rate reflects the transfer rather than one buffer's timing. */
+    private class TransferRate {
+        private var lastBytes = 0L
+        private var lastAt = 0L
+        private var smoothed = 0.0
+
+        fun sample(bytes: Long, nowMillis: Long): Long {
+            if (lastAt == 0L) {
+                lastBytes = bytes
+                lastAt = nowMillis
+                return 0
+            }
+            val elapsed = nowMillis - lastAt
+            if (elapsed < MIN_SAMPLE_MS) return smoothed.toLong()
+            val instant = (bytes - lastBytes).coerceAtLeast(0) * 1000.0 / elapsed
+            lastBytes = bytes
+            lastAt = nowMillis
+            smoothed = if (smoothed == 0.0) instant else smoothed * (1 - ALPHA) + instant * ALPHA
+            return smoothed.toLong()
+        }
+
+        private companion object {
+            const val MIN_SAMPLE_MS = 400L
+            const val ALPHA = 0.35
         }
     }
 
@@ -483,42 +645,34 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeRecord(record: DownloadRecord) {
         if (record.id == activeTaskId) return
-        val updated = currentRecords().filterNot { it.id == record.id }
-        publishRecords(updated)
+        publishRecords(currentRecords().filterNot { it.id == record.id })
         viewModelScope.launch(Dispatchers.IO) { recordRepository.deleteTaskFiles(record.id) }
     }
 
     fun deleteOutput(record: DownloadRecord) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val deleted = recordRepository.deleteOutput(record)
-            withContext(Dispatchers.Main) {
-                updateRecord(record.id) {
-                    it.copy(
-                        outputUri = "",
-                        outputName = "",
-                        outputSize = 0,
-                        error = if (deleted) {
-                            string(R.string.message_saved_deleted)
-                        } else {
-                            string(R.string.file_missing)
-                        }
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) { recordRepository.deleteOutput(record) }
+            updateRecord(record.id) {
+                it.copy(outputUri = "", outputName = "", outputSize = 0, error = "")
+            }
+            _uiState.update {
+                it.copy(
+                    message = UiMessage(
+                        string(if (deleted) R.string.message_saved_deleted else R.string.file_missing)
                     )
-                }
+                )
             }
         }
     }
 
-    fun verifyOutput(record: DownloadRecord): Boolean {
-        val exists = recordRepository.outputExists(record)
+    /** Confirms the saved file is still there before an intent is built around its URI. */
+    suspend fun verifyOutput(record: DownloadRecord): Boolean {
+        val exists = withContext(Dispatchers.IO) { recordRepository.outputExists(record) }
         if (!exists && record.outputUri.isNotBlank()) {
             updateRecord(record.id) {
-                it.copy(
-                    outputUri = "",
-                    outputName = "",
-                    outputSize = 0,
-                    error = string(R.string.file_missing)
-                )
+                it.copy(outputUri = "", outputName = "", outputSize = 0)
             }
+            _uiState.update { it.copy(message = UiMessage(string(R.string.file_missing))) }
         }
         return exists
     }
@@ -535,7 +689,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun navigate(screen: Screen) {
-        _uiState.update { it.copy(screen = screen, message = "") }
+        _uiState.update { it.copy(screen = screen) }
     }
 
     fun navigateBack(): Boolean {
@@ -553,6 +707,11 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(themeMode = mode) }
     }
 
+    fun setDynamicColor(enabled: Boolean) {
+        recordRepository.dynamicColor = enabled
+        _uiState.update { it.copy(dynamicColor = enabled) }
+    }
+
     fun setKeepScreenOn(enabled: Boolean) {
         recordRepository.keepScreenOn = enabled
         _uiState.update { it.copy(keepScreenOn = enabled) }
@@ -561,7 +720,10 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     fun setCustomFolder(uri: String) {
         recordRepository.customFolderUri = uri
         _uiState.update {
-            it.copy(customFolderUri = uri, message = string(R.string.message_save_location_updated))
+            it.copy(
+                customFolderUri = uri,
+                message = UiMessage(string(R.string.message_save_location_updated))
+            )
         }
     }
 
@@ -569,7 +731,9 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearTemporaryFiles() {
         if (activeJob != null) {
-            _uiState.update { it.copy(message = string(R.string.message_active_download_first)) }
+            _uiState.update {
+                it.copy(message = UiMessage(string(R.string.message_active_download_first)))
+            }
             return
         }
         viewModelScope.launch {
@@ -580,23 +744,27 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             }
             _uiState.update {
                 it.copy(
-                    message = if (success) {
-                        string(R.string.message_temporary_cleared)
-                    } else {
-                        string(R.string.message_temporary_partial)
-                    }
+                    message = UiMessage(
+                        string(
+                            if (success) {
+                                R.string.message_temporary_cleared
+                            } else {
+                                R.string.message_temporary_partial
+                            }
+                        )
+                    )
                 )
             }
         }
     }
 
     fun clearHistory() {
-        val keep = currentRecords().filter {
-            it.status in setOf(TaskStatus.QUEUED, TaskStatus.CHECKING, TaskStatus.DOWNLOADING, TaskStatus.PAUSED, TaskStatus.VERIFYING, TaskStatus.EXPORTING)
-        }
-        val removed = currentRecords().filterNot { it in keep }
+        val keep = currentRecords().filter { it.status.isActive || it.status == TaskStatus.PAUSED }
+        val removed = currentRecords() - keep.toSet()
         publishRecords(keep)
-        _uiState.update { it.copy(message = string(R.string.message_history_cleared)) }
+        _uiState.update {
+            it.copy(message = UiMessage(string(R.string.message_history_cleared)))
+        }
         viewModelScope.launch(Dispatchers.IO) {
             removed.forEach { recordRepository.deleteTaskFiles(it.id) }
         }
@@ -619,7 +787,7 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { state ->
                         state.copy(
                             connection = ConnectionState.CONNECTED,
-                            message = string(R.string.message_connection_ready)
+                            message = UiMessage(string(R.string.message_connection_ready))
                         )
                     }
                 }
@@ -632,7 +800,31 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun consumeMessage() {
-        _uiState.update { it.copy(message = "") }
+        _uiState.update { it.copy(message = null) }
+    }
+
+    /**
+     * Android 13 and newer shows its own copy confirmation. On older releases nothing does, so the
+     * app confirms it rather than leaving a long-press with no visible result.
+     */
+    fun notifyCopied(value: String) {
+        _uiState.update {
+            it.copy(
+                message = UiMessage(
+                    getApplication<Application>().getString(R.string.message_copied, value)
+                )
+            )
+        }
+    }
+
+    fun runMessageAction(action: MessageAction) {
+        consumeMessage()
+        when (action) {
+            MessageAction.NONE -> Unit
+            MessageAction.RETRY_SEARCH -> submitSearch()
+            MessageAction.RETRY_DISCOVERY -> discoverVariants()
+            MessageAction.OPEN_DOWNLOADS -> navigate(Screen.DOWNLOADS)
+        }
     }
 
     private fun DownloadPlan.toRecord() = DownloadRecord(
@@ -683,13 +875,13 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
             updatedRecords = updated
             state.copy(records = updated)
         }
-        if (persist) updatedRecords?.let(recordRepository::save)
+        if (persist) updatedRecords?.let(persistRequests::tryEmit)
     }
 
     private fun publishRecords(records: List<DownloadRecord>) {
-        val sorted = records.sortedByDescending { it.createdAt }
+        val sorted = records.sortedByDescending(DownloadRecord::createdAt)
         _uiState.update { it.copy(records = sorted) }
-        recordRepository.save(sorted)
+        persistRequests.tryEmit(sorted)
     }
 
     private fun currentRecords() = _uiState.value.records
@@ -701,8 +893,8 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun string(@StringRes id: Int): String = getApplication<Application>().getString(id)
 
-    private fun showError(throwable: Throwable) {
-        _uiState.update { it.copy(message = userMessage(throwable)) }
+    private fun showError(throwable: Throwable, action: MessageAction = MessageAction.NONE) {
+        _uiState.update { it.copy(message = UiMessage(userMessage(throwable), action)) }
     }
 
     private fun userMessage(throwable: Throwable): String {
@@ -803,6 +995,8 @@ class PureViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "AuroraPure"
+        private const val UI_PROGRESS_INTERVAL_MS = 200L
+        private const val PERSIST_INTERVAL_MS = 1_000L
         private val URL_PATTERN = Regex("(?i)https?://\\S+")
         private val EMAIL_PATTERN = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
         private val SECRET_FIELD_PATTERN = Regex(

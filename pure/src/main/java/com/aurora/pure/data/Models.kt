@@ -5,6 +5,7 @@
 
 package com.aurora.pure.data
 
+import androidx.compose.runtime.Immutable
 import java.io.File
 import java.security.MessageDigest
 
@@ -93,6 +94,7 @@ enum class DensityChoice(val dpi: Int?) {
     }
 }
 
+@Immutable
 data class DeliveryProfile(
     val variant: ArchitectureVariant,
     val platforms: List<String>,
@@ -109,6 +111,7 @@ data class DeliveryProfile(
     val id: String get() = "${variant.archiveDirectory}-${densityDpi}dpi-api$sdkVersion"
 }
 
+@Immutable
 data class DeliveryVariant(
     val id: String,
     val versionName: String,
@@ -167,6 +170,7 @@ data class DeliveryVariant(
         }
 }
 
+@Immutable
 data class AppSummary(
     val packageName: String,
     val displayName: String,
@@ -180,6 +184,22 @@ data class AppSummary(
     val checkedAt: Long = System.currentTimeMillis()
 )
 
+/**
+ * Live shape of a complete discovery scan. [totalPaths] is known before the first request, so the
+ * scan can be reported as a determinate fraction instead of an open-ended spinner.
+ */
+@Immutable
+data class DiscoveryProgress(
+    val probesCompleted: Int = 0,
+    val pathsCompleted: Int = 0,
+    val totalPaths: Int = 0,
+    val active: List<DeliveryProfile> = emptyList()
+) {
+    val fraction: Float
+        get() = if (totalPaths <= 0) 0f else (pathsCompleted.toFloat() / totalPaths).coerceIn(0f, 1f)
+}
+
+@Immutable
 data class ArtifactPlan(
     val variant: ArchitectureVariant,
     val densityDpi: Int,
@@ -228,6 +248,7 @@ data class ArtifactPlan(
     }
 }
 
+@Immutable
 data class DownloadPlan(
     val id: String,
     val packageName: String,
@@ -284,6 +305,7 @@ data class DownloadPlan(
     }
 }
 
+@Immutable
 data class DownloadRecord(
     val id: String,
     val packageName: String,
@@ -307,9 +329,28 @@ data class DownloadRecord(
     val outputSize: Long = 0,
     val verification: String = "",
     val hasAdditionalData: Boolean = false,
-    val error: String = ""
-)
+    val error: String = "",
+    /** Live transfer rate. Session-only: a resumed record starts measuring again from zero. */
+    val bytesPerSecond: Long = 0
+) {
+    val fraction: Float
+        get() = if (totalBytes <= 0) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
 
+    /**
+     * Seconds left at the current rate, or `null` when there is nothing worth extrapolating from.
+     * Anything under a second is reported as absent rather than as "0 seconds left", which reads
+     * as a broken estimate rather than an almost-finished transfer.
+     */
+    val secondsRemaining: Long?
+        get() {
+            if (bytesPerSecond <= 0 || totalBytes <= 0) return null
+            val remaining = totalBytes - downloadedBytes
+            if (remaining <= 0) return null
+            return (remaining / bytesPerSecond).takeIf { it > 0 }
+        }
+}
+
+@Immutable
 data class FileVerification(
     val relativePath: String,
     val variant: ArchitectureVariant,
@@ -321,6 +362,7 @@ data class FileVerification(
     val signerSha256: List<String>
 )
 
+@Immutable
 data class VerificationReport(
     val files: List<FileVerification>,
     val integrity: VerificationState,
@@ -341,23 +383,27 @@ data class VerificationReport(
     }
 }
 
+@Immutable
 data class ExportResult(
     val uri: String,
     val displayName: String,
     val size: Long
 )
 
+@Immutable
 data class DownloadedArtifact(
     val plan: ArtifactPlan,
     val file: File
 )
 
+@Immutable
 data class DownloadOutcome(
     val plan: DownloadPlan,
     val artifacts: List<DownloadedArtifact>,
     val verification: VerificationReport
 )
 
+@Immutable
 data class DownloadConfirmation(
     val previous: AppSummary,
     val plan: DownloadPlan,
@@ -365,24 +411,73 @@ data class DownloadConfirmation(
     val changed: Boolean
 )
 
+/** What the user can act on next after a message, so a failure is never a dead end. */
+enum class MessageAction {
+    NONE,
+    RETRY_SEARCH,
+    RETRY_DISCOVERY,
+    OPEN_DOWNLOADS
+}
+
+@Immutable
+data class UiMessage(
+    val text: String,
+    val action: MessageAction = MessageAction.NONE,
+    val id: Long = nextId()
+) {
+    companion object {
+        private var counter = 0L
+
+        @Synchronized
+        private fun nextId(): Long = ++counter
+    }
+}
+
+/** Destructive actions route through here so nothing irreversible happens on a single tap. */
+enum class ConfirmAction {
+    CLEAR_HISTORY,
+    CLEAR_TEMPORARY,
+    DELETE_OUTPUT,
+    REMOVE_RECORD,
+    CANCEL_DOWNLOAD
+}
+
+@Immutable
+data class PendingConfirm(
+    val action: ConfirmAction,
+    val record: DownloadRecord? = null
+)
+
+@Immutable
 data class PureUiState(
     val screen: Screen = Screen.SEARCH,
     val query: String = "",
     val results: List<AppSummary> = emptyList(),
+    val recentQueries: List<String> = emptyList(),
+    val searched: Boolean = false,
+    val searching: Boolean = false,
     val selected: AppSummary? = null,
     val variants: List<DeliveryVariant> = emptyList(),
     val selectedVariantId: String = "",
     val discoveringVariants: Boolean = false,
-    val discoveryProbeCount: Int = 0,
-    val discoveryProbeDescription: String = "",
+    val discovery: DiscoveryProgress = DiscoveryProgress(),
+    val discoveryFailed: Boolean = false,
+    val discoveryIncomplete: Boolean = false,
     val records: List<DownloadRecord> = emptyList(),
+    val restoringRecords: Boolean = true,
     val busy: Boolean = false,
-    val message: String = "",
+    val message: UiMessage? = null,
     val connection: ConnectionState = ConnectionState.IDLE,
     val confirmation: DownloadConfirmation? = null,
+    val pendingConfirm: PendingConfirm? = null,
     val architectureChoice: ArchitectureChoice = ArchitectureChoice.UNIVERSAL,
     val densityChoice: DensityChoice = DensityChoice.ALL,
     val themeMode: Int = 0,
+    val dynamicColor: Boolean = false,
     val keepScreenOn: Boolean = false,
     val customFolderUri: String = ""
-)
+) {
+    val activeDownloadCount: Int get() = records.count { it.status.isActive }
+    val selectedVariant: DeliveryVariant?
+        get() = variants.firstOrNull { it.id == selectedVariantId }
+}

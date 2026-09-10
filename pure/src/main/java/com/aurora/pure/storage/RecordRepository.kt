@@ -6,7 +6,8 @@
 package com.aurora.pure.storage
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.aurora.pure.R
 import com.aurora.pure.data.ArchitectureChoice
 import com.aurora.pure.data.ArchitectureVariant
@@ -23,15 +24,41 @@ class RecordRepository(private val context: Context) {
 
     var themeMode: Int
         get() = preferences.getInt("theme_mode", 0)
-        set(value) = preferences.edit().putInt("theme_mode", value).apply()
+        set(value) = preferences.edit { putInt("theme_mode", value) }
 
     var keepScreenOn: Boolean
         get() = preferences.getBoolean("keep_screen_on", false)
-        set(value) = preferences.edit().putBoolean("keep_screen_on", value).apply()
+        set(value) = preferences.edit { putBoolean("keep_screen_on", value) }
 
     var customFolderUri: String
         get() = preferences.getString("custom_folder_uri", "").orEmpty()
-        set(value) = preferences.edit().putString("custom_folder_uri", value).apply()
+        set(value) = preferences.edit { putString("custom_folder_uri", value) }
+
+    /**
+     * Off by default. Aurora Pure ships a palette of its own; borrowing the wallpaper's colours is
+     * offered as a choice rather than imposed over the app's identity.
+     */
+    var dynamicColor: Boolean
+        get() = preferences.getBoolean("dynamic_color", false)
+        set(value) = preferences.edit { putBoolean("dynamic_color", value) }
+
+    /** Newest first. Kept small so the suggestion row never turns into a second history screen. */
+    var recentQueries: List<String>
+        get() = runCatching {
+            val json = JSONArray(preferences.getString("recent_queries", "[]").orEmpty())
+            buildList {
+                for (index in 0 until json.length()) {
+                    json.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                }
+            }
+        }.getOrDefault(emptyList())
+        set(value) {
+            val trimmed = value.map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .take(MAX_RECENT_QUERIES)
+            preferences.edit { putString("recent_queries", JSONArray(trimmed).toString()) }
+        }
 
     fun load(): List<DownloadRecord> {
         val raw = preferences.getString("records", "[]").orEmpty()
@@ -64,13 +91,13 @@ class RecordRepository(private val context: Context) {
     fun save(records: List<DownloadRecord>) {
         val array = JSONArray()
         records.forEach { array.put(it.toJson()) }
-        preferences.edit().putString("records", array.toString()).apply()
+        preferences.edit { putString("records", array.toString()) }
     }
 
     fun outputExists(record: DownloadRecord): Boolean {
         if (record.outputUri.isBlank()) return false
         return runCatching {
-            context.contentResolver.openAssetFileDescriptor(Uri.parse(record.outputUri), "r")
+            context.contentResolver.openAssetFileDescriptor(record.outputUri.toUri(), "r")
                 ?.use { true } ?: false
         }.getOrDefault(false)
     }
@@ -78,7 +105,7 @@ class RecordRepository(private val context: Context) {
     fun deleteOutput(record: DownloadRecord): Boolean {
         if (record.outputUri.isBlank()) return false
         return runCatching {
-            context.contentResolver.delete(Uri.parse(record.outputUri), null, null) > 0
+            context.contentResolver.delete(record.outputUri.toUri(), null, null) > 0
         }.getOrDefault(false)
     }
 
@@ -187,6 +214,8 @@ class RecordRepository(private val context: Context) {
     )
 
     companion object {
+        const val MAX_RECENT_QUERIES = 8
+
         private val TASK_ID_PATTERN = Regex(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
         )

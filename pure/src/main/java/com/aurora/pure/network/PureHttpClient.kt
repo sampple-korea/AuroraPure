@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -34,8 +36,14 @@ class PureHttpClient : IHttpClient {
         // Authenticated protocol headers must never follow a redirect to another host.
         .followRedirects(false)
         .followSslRedirects(false)
+        // Connect and read timeouts only bound individual socket operations, so a response that
+        // trickles a few bytes at a time can hang a metadata request indefinitely. Every protocol
+        // call is small and short-lived, so it gets a hard ceiling and surfaces a real error.
+        .callTimeout(PROTOCOL_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
+    // Deliberately without a call timeout: an artifact download is legitimately long-running, and
+    // the read timeout already bounds a stalled transfer.
     val downloadClient: OkHttpClient = baseClientBuilder()
         .followRedirects(true)
         .followSslRedirects(true)
@@ -53,6 +61,11 @@ class PureHttpClient : IHttpClient {
         .readTimeout(40, TimeUnit.SECONDS)
         .writeTimeout(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        // A discovery scan and a parallel download both hammer a handful of Google hosts. OkHttp
+        // defaults to five in-flight requests per host and a per-client pool, which serialises the
+        // scan behind an artificial queue and re-runs TLS for work the other client already warmed.
+        .connectionPool(CONNECTION_POOL)
+        .dispatcher(DISPATCHER)
 
     fun call(url: String, headers: Map<String, String> = emptyMap()): Response {
         val request = Request.Builder()
@@ -195,6 +208,19 @@ class PureHttpClient : IHttpClient {
 
     companion object {
         private const val TAG = "AuroraPure"
+        private const val PROTOCOL_CALL_TIMEOUT_SECONDS = 60L
+
+        /** Shared so protocol probes and artifact downloads reuse each other's warm connections. */
+        private val CONNECTION_POOL = ConnectionPool(16, 5, TimeUnit.MINUTES)
+
+        // Enough that a discovery scan and a four-way parallel download never queue behind each
+        // other on OkHttp's default of five per host, and no more: Google Play answers a burst of
+        // requests to one host with HTTP 429.
+        private val DISPATCHER = Dispatcher().apply {
+            maxRequests = 32
+            maxRequestsPerHost = 8
+        }
+
         // The official dispenser validates the client identifier. Keep the identifier of the
         // pinned Aurora Store protocol baseline while Aurora Pure uses its own package/version
         // everywhere else.

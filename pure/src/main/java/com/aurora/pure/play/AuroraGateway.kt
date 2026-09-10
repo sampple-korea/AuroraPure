@@ -8,6 +8,7 @@
 package com.aurora.pure.play
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import com.aurora.gplayapi.data.models.App
@@ -25,6 +26,7 @@ import com.aurora.pure.data.ArtifactPlan
 import com.aurora.pure.data.DeliveryProfile
 import com.aurora.pure.data.DeliveryVariant
 import com.aurora.pure.data.DensityChoice
+import com.aurora.pure.data.DiscoveryProgress
 import com.aurora.pure.data.DownloadPlan
 import com.aurora.pure.download.LanguageSplit
 import com.aurora.pure.download.RemoteApkSplitReader
@@ -46,6 +48,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 import org.json.JSONObject
 
 class AuroraGateway(private val context: Context) {
@@ -54,6 +57,12 @@ class AuroraGateway(private val context: Context) {
 
     private val cachedAuth = ConcurrentHashMap<String, AuthData>()
     private val credentialsMutex = Mutex()
+
+    // Re-opening an app, or returning from it, used to replay the exact same web request. These
+    // are short-lived on purpose: long enough to make navigation instant, short enough that a
+    // deliberate refresh still sees a newly published version.
+    private val searchCache = TimedCache<String, List<AppSummary>>(MAX_CACHED_SEARCHES, CACHE_TTL_MS)
+    private val detailsCache = TimedCache<String, AppSummary>(MAX_CACHED_DETAILS, CACHE_TTL_MS)
 
     @Volatile
     private var cachedCredentials: AnonymousCredentials? = null
@@ -100,17 +109,54 @@ class AuroraGateway(private val context: Context) {
     fun disconnect() {
         cachedAuth.clear()
         cachedCredentials = null
+        searchCache.clear()
+        detailsCache.clear()
+    }
+
+    /** Bounded, time-limited memo. Sized for a session's browsing, not for offline use. */
+    private class TimedCache<K : Any, V : Any>(
+        private val maxEntries: Int,
+        private val ttlMillis: Long
+    ) {
+        private class Entry<V>(val value: V, val storedAt: Long)
+
+        private val entries = object : LinkedHashMap<K, Entry<V>>(maxEntries, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Entry<V>>) =
+                size > maxEntries
+        }
+
+        fun get(key: K): V? = synchronized(entries) {
+            val entry = entries[key] ?: return null
+            if (SystemClock.elapsedRealtime() - entry.storedAt > ttlMillis) {
+                entries.remove(key)
+                return null
+            }
+            entry.value
+        }
+
+        fun put(key: K, value: V) = synchronized(entries) {
+            entries[key] = Entry(value, SystemClock.elapsedRealtime())
+            Unit
+        }
+
+        fun clear() = synchronized(entries) { entries.clear() }
     }
 
     suspend fun search(query: String): List<AppSummary> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        searchCache.get(trimmed)?.let { return@withContext it }
         val helper = WebSearchHelper().using(httpClient).with(currentLocale())
-        helper.searchResults(query.trim())
+        helper.searchResults(trimmed)
             .streamClusters
             .values
             .flatMap { it.clusterAppList }
             .distinctBy { it.packageName }
             .map { app -> app.toSummary() }
+            .also { results -> if (results.isNotEmpty()) searchCache.put(trimmed, results) }
     }
+
+    /** The cached summary a details screen can paint immediately, before the network answers. */
+    fun cachedDetails(packageName: String): AppSummary? = detailsCache.get(packageName)
 
     suspend fun details(packageName: String): AppSummary = withContext(Dispatchers.IO) {
         WebAppDetailsHelper()
@@ -118,36 +164,71 @@ class AuroraGateway(private val context: Context) {
             .with(currentLocale())
             .getAppByPackageName(packageName)
             .toSummary()
+            .also { detailsCache.put(packageName, it) }
     }
+
+    /**
+     * Outcome of a complete scan. [incomplete] means Google Play kept throttling at least one
+     * delivery path, so the matrix on screen is a subset of what the app would normally find.
+     */
+    data class DiscoveryResult(
+        val variants: List<DeliveryVariant>,
+        val incomplete: Boolean
+    )
 
     suspend fun discoverVariants(
         packageName: String,
-        onProgress: (completed: Int, active: List<DeliveryProfile>) -> Unit = { _, _ -> }
-    ): List<DeliveryVariant> = withContext(Dispatchers.IO) {
+        onProgress: (DiscoveryProgress) -> Unit = {},
+        onPartialResults: (List<DeliveryVariant>) -> Unit = {}
+    ): DiscoveryResult = withContext(Dispatchers.IO) {
         val initial = DeviceProfile.completeDiscoveryProfiles(
             sdkVersions = listOf(LATEST_SUPPORTED_ANDROID_API)
         )
-        val completed = AtomicInteger(0)
+        val probesCompleted = AtomicInteger(0)
+        val pathsCompleted = AtomicInteger(0)
         val active = linkedSetOf<DeliveryProfile>()
         val progressLock = Any()
+        val collected = mutableListOf<ProfileSnapshot>()
+        var firstResultAt = 0L
+
+        fun report(active: List<DeliveryProfile>) = onProgress(
+            DiscoveryProgress(
+                probesCompleted = probesCompleted.get(),
+                pathsCompleted = pathsCompleted.get(),
+                totalPaths = initial.size,
+                active = active
+            )
+        )
 
         fun reportStarted(profile: DeliveryProfile) {
-            val snapshot = synchronized(progressLock) {
-                active += profile
-                completed.get() to active.toList()
-            }
-            onProgress(snapshot.first, snapshot.second)
+            report(synchronized(progressLock) { active += profile; active.toList() })
         }
 
         fun reportFinished(profile: DeliveryProfile) {
-            val snapshot = synchronized(progressLock) {
-                active -= profile
-                completed.incrementAndGet() to active.toList()
-            }
-            onProgress(snapshot.first, snapshot.second)
+            probesCompleted.incrementAndGet()
+            report(synchronized(progressLock) { active -= profile; active.toList() })
         }
 
-        val snapshots = coroutineScope {
+        // Every individual probe is a complete, publishable answer on its own, so a result reaches
+        // the list the moment Google Play returns it rather than after its whole ABI/DPI path — let
+        // alone after the slowest of 28 paths — has finished walking down the Android tiers.
+        // Building and emitting under the same lock keeps probes from delivering a stale snapshot
+        // out of order.
+        fun publishSnapshot(snapshot: ProfileSnapshot) {
+            synchronized(progressLock) {
+                collected += snapshot
+                if (firstResultAt == 0L) firstResultAt = SystemClock.elapsedRealtime()
+                onPartialResults(buildVariants(collected.toList()))
+            }
+        }
+
+        fun pathFinished() {
+            pathsCompleted.incrementAndGet()
+            report(synchronized(progressLock) { active.toList() })
+        }
+
+        val startedAt = SystemClock.elapsedRealtime()
+        val outcomes = coroutineScope {
             val limiter = Semaphore(DISCOVERY_PARALLELISM)
             initial.map { initialProfile ->
                 async {
@@ -156,16 +237,37 @@ class AuroraGateway(private val context: Context) {
                             packageName = packageName,
                             initialProfile = initialProfile,
                             onStarted = ::reportStarted,
-                            onFinished = ::reportFinished
-                        )
+                            onFinished = ::reportFinished,
+                            onSnapshot = ::publishSnapshot
+                        ).also { pathFinished() }
                     }
                 }
-            }.awaitAll().flatten()
+            }.awaitAll()
         }
+        val snapshots = outcomes.flatMap(PathOutcome::snapshots)
+        val throttled = outcomes.any(PathOutcome::throttled)
 
         require(snapshots.isNotEmpty()) {
-            "Google Play returned no APK files for any supported delivery profile"
+            if (throttled) {
+                "Anonymous connection is rate limited; try again later"
+            } else {
+                "Google Play returned no APK files for any supported delivery profile"
+            }
         }
+        val stats = splitReader.memoStats()
+        Log.i(
+            TAG,
+            "Scanned ${initial.size} delivery paths in " +
+                "${SystemClock.elapsedRealtime() - startedAt} ms, " +
+                "first results after ${firstResultAt - startedAt} ms " +
+                "(${probesCompleted.get()} probes, base APK metadata: " +
+                "${stats.reads} read, ${stats.hits} reused" +
+                (if (throttled) ", rate limited" else "") + ")"
+        )
+        DiscoveryResult(buildVariants(snapshots), throttled)
+    }
+
+    private fun buildVariants(snapshots: List<ProfileSnapshot>): List<DeliveryVariant> {
         val groups = snapshots.groupBy { it.signature() }
             .values
             .map { matching -> matching.toDeliveryVariant() }
@@ -199,7 +301,7 @@ class AuroraGateway(private val context: Context) {
                 universal = true
             )
         }
-        if (aggregate == null) {
+        return if (aggregate == null) {
             groups.map { variant ->
                 if (variant.architectures.toSet() == discoveredArchitectures) {
                     variant.copy(aggregate = true, universal = true)
@@ -212,13 +314,20 @@ class AuroraGateway(private val context: Context) {
         }
     }
 
+    private class PathOutcome(
+        val snapshots: List<ProfileSnapshot>,
+        val throttled: Boolean
+    )
+
     private suspend fun discoverProfilePath(
         packageName: String,
         initialProfile: DeliveryProfile,
         onStarted: (DeliveryProfile) -> Unit,
-        onFinished: (DeliveryProfile) -> Unit
-    ): List<ProfileSnapshot> {
+        onFinished: (DeliveryProfile) -> Unit,
+        onSnapshot: (ProfileSnapshot) -> Unit
+    ): PathOutcome {
         val snapshots = mutableListOf<ProfileSnapshot>()
+        var throttled = false
         // Each ABI × DPI pair follows its own manifest minSdk boundaries. A low-density
         // result must never cause a higher-density Android tier to be skipped.
         var sdkVersion = LATEST_SUPPORTED_ANDROID_API
@@ -233,11 +342,21 @@ class AuroraGateway(private val context: Context) {
                     languageCache = mutableMapOf(),
                     resolveLanguages = false
                 )
-                snapshots += ProfileSnapshot(profile, resolved)
+                val snapshot = ProfileSnapshot(profile, resolved)
+                snapshots += snapshot
+                onSnapshot(snapshot)
                 val nextSdk = resolved.minSdk - 1
                 if (nextSdk < MIN_SUPPORTED_ANDROID_API || nextSdk >= sdkVersion) break
                 sdkVersion = nextSdk
             } catch (exception: Exception) {
+                // A path that is still throttled after its session was renewed stops here rather
+                // than aborting every other path. The scan reports itself as incomplete instead of
+                // silently presenting a truncated delivery matrix as if it were the whole picture.
+                if (isRateLimited(exception)) {
+                    Log.w(TAG, "Gave up on ${profile.id}: still rate limited after a new session")
+                    throttled = true
+                    break
+                }
                 if (!isUnsupportedProfile(exception)) throw exception
                 Log.i(TAG, "No delivery for ${profile.id}")
                 break
@@ -245,7 +364,7 @@ class AuroraGateway(private val context: Context) {
                 onFinished(profile)
             }
         }
-        return snapshots
+        return PathOutcome(snapshots, throttled)
     }
 
     suspend fun resolvePlan(
@@ -312,8 +431,17 @@ class AuroraGateway(private val context: Context) {
                 resolveLanguages
             )
         } catch (exception: Exception) {
-            if (!isAuthFailure(exception)) throw exception
-            Log.i(TAG, "Refreshing an expired ${profile.id} anonymous session")
+            val throttled = isRateLimited(exception)
+            if (!isAuthFailure(exception) && !throttled) throw exception
+            // A throttled session clears the same way the Reconnect action clears it: drop the
+            // cached credentials and ask for a new one. Doing that here means a burst of HTTP 429
+            // no longer strands the user in Settings looking for a button to press.
+            if (throttled) {
+                Log.i(TAG, "Google Play throttled ${profile.id}; renewing the anonymous session")
+                delay(RATE_LIMIT_BACKOFF_MS + Random.nextLong(RATE_LIMIT_JITTER_MS))
+            } else {
+                Log.i(TAG, "Refreshing an expired ${profile.id} anonymous session")
+            }
             cachedAuth.clear()
             invalidateCredentials()
             return resolveVariantWithAuth(
@@ -710,6 +838,13 @@ class AuroraGateway(private val context: Context) {
             cause is PureHttpClient.ProtocolHttpException && cause.status in AUTH_FAILURE_CODES
         }
 
+    /** Both Google Play and the anonymous token service answer a burst with a rate limit. */
+    private fun isRateLimited(exception: Exception): Boolean =
+        generateSequence<Throwable>(exception) { it.cause }.any { cause ->
+            (cause is PureHttpClient.ProtocolHttpException && cause.status == RATE_LIMIT_STATUS) ||
+                cause.message?.startsWith("Anonymous connection is rate limited") == true
+        }
+
     private data class OwnedFile(
         val owner: App,
         val file: PlayFile,
@@ -754,7 +889,16 @@ class AuroraGateway(private val context: Context) {
         private const val MIN_SUPPORTED_ANDROID_API = 21
         private const val LATEST_SUPPORTED_ANDROID_API = 36
         private const val MAX_SELECTED_PROFILES = 64
+        // Google Play throttles a burst of anonymous sessions with HTTP 429, so this stays where it
+        // is. The scan got faster by removing redundant work per probe, not by adding more probes
+        // in flight — raising this to 8 measurably provoked rate limiting mid-scan.
         private const val DISCOVERY_PARALLELISM = 4
+        private const val MAX_CACHED_SEARCHES = 24
+        private const val MAX_CACHED_DETAILS = 48
+        private const val CACHE_TTL_MS = 5 * 60 * 1000L
+        private const val RATE_LIMIT_BACKOFF_MS = 1_200L
+        private const val RATE_LIMIT_JITTER_MS = 800L
+        private const val RATE_LIMIT_STATUS = 429
         private val AUTH_FAILURE_CODES = setOf(401, 403)
     }
 }
