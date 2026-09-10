@@ -22,7 +22,7 @@ Aurora Pure is a download-only Android app and desktop CLI for saving APK files 
   <img src="docs/screenshots/cli-en.png" width="32%" alt="Aurora Pure interactive desktop CLI">
 </p>
 
-The Android screenshots and CLI capture above are generated from the 1.4.1 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
+The Android screenshots and CLI capture above are generated from the 1.4.2 release candidate. The interface is fully available in English, Simplified Chinese, Japanese, and Korean.
 
 ## Download
 
@@ -34,13 +34,13 @@ Get release files from [GitHub Releases](https://github.com/sampple-korea/Aurora
 
 | Platform | Release file | Requirement |
 | --- | --- | --- |
-| Android | `AuroraPure-1.4.1.apk` | Android 10 / API 29 or newer |
-| Linux and macOS CLI | `aurora-pure-cli-1.4.1.tar` or `.zip` | Java 21 or newer |
-| Windows CLI | `aurora-pure-cli-1.4.1.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
+| Android | `AuroraPure-1.4.2.apk` | Android 10 / API 29 or newer |
+| Linux and macOS CLI | `aurora-pure-cli-1.4.2.tar` or `.zip` | Java 21 or newer |
+| Windows CLI | `aurora-pure-cli-1.4.2.zip` | Java 21 or newer; run `bin\aurora-pure.bat` |
 
 Aurora Pure downloads files only. To install a downloaded app, use Android's file manager or a compatible split-APK installer separately.
 
-## What 1.4.1 can do
+## What 1.4.2 can do
 
 - Search by app name, package name, Google Play URL, or a shared Play link.
 - Show the app icon, developer, package name, version metadata, and description.
@@ -72,7 +72,7 @@ Within each version, responses are grouped only when their version and real APK 
 
 The **Universal** row combines the latest discovered sets without mixing version codes. All four ABI families are probed; a family that Play does not deliver for that app is omitted rather than fabricated, and the row shows exactly which families were returned. Nothing is selected until the user chooses a result. Aurora Pure does not rewrite or merge several split APKs into a fabricated monolithic APK.
 
-Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.4.1 covers the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
+Google Play may target other dimensions, such as device features or graphics texture formats. Version 1.4.2 covers the ABI, density, Android-version, and language dimensions it explicitly probes—not every possible Play targeting dimension.
 
 ## Output contract
 

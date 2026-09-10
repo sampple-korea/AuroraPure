@@ -22,7 +22,7 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
   <img src="docs/screenshots/cli-en.png" width="32%" alt="Aurora Pure 交互式桌面 CLI">
 </p>
 
-以上 Android 截图和 CLI 图来自 1.4.1 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。
+以上 Android 截图和 CLI 图来自 1.4.2 候选版本。Android 应用与 CLI 完整支持英语、简体中文、日语和韩语。
 
 ## 下载
 
@@ -33,13 +33,13 @@ Aurora Pure 是一款仅用于下载的 Android 应用和桌面 CLI，用来保�
 
 | 平台 | 文件 | 要求 |
 | --- | --- | --- |
-| Android | `AuroraPure-1.4.1.apk` | Android 10 / API 29 或更高 |
-| Linux、macOS CLI | `aurora-pure-cli-1.4.1.tar` 或 `.zip` | Java 21 或更高 |
-| Windows CLI | `aurora-pure-cli-1.4.1.zip` | Java 21 或更高；运行 `bin\aurora-pure.bat` |
+| Android | `AuroraPure-1.4.2.apk` | Android 10 / API 29 或更高 |
+| Linux、macOS CLI | `aurora-pure-cli-1.4.2.tar` 或 `.zip` | Java 21 或更高 |
+| Windows CLI | `aurora-pure-cli-1.4.2.zip` | Java 21 或更高；运行 `bin\aurora-pure.bat` |
 
 Aurora Pure 只负责下载。若要安装结果，请另行使用 Android 文件管理器或兼容的分包 APK 安装器。
 
-## 1.4.1 功能
+## 1.4.2 功能
 
 - 按应用名、包名、Google Play URL 或分享的 Play 链接搜索。
 - 显示图标、开发者、包名、版本信息和说明。
@@ -71,7 +71,7 @@ Aurora Pure 只负责下载。若要安装结果，请另行使用 Android 文�
 
 **Universal** 行会在不混合版本代码的前提下汇总最新已发现集合。系统会探测四种 ABI；如果 Play 没有为该应用交付某个架构，就会明确省略而不会伪造，并在行中显示实际返回的架构。扫描结束后不会自动选择任何结果，选择权留给用户。Aurora Pure 不会重写多个 split APK，也不会伪造单体通用 APK。
 
-Google Play 还可能按设备功能或图形纹理格式等维度定向。1.4.1 明确覆盖 ABI、密度、Android 版本和语言维度，而不声称覆盖 Play 的所有可能维度。
+Google Play 还可能按设备功能或图形纹理格式等维度定向。1.4.2 明确覆盖 ABI、密度、Android 版本和语言维度，而不声称覆盖 Play 的所有可能维度。
 
 ## 输出约定
 

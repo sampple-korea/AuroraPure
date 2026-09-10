@@ -47,8 +47,8 @@ android {
         applicationId = "com.aurora.pure"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.4.1"
+        versionCode = 8
+        versionName = "1.4.2"
 
         buildConfigField("String", "UPSTREAM_VERSION", "\"4.8.3\"")
         buildConfigField("String", "UPSTREAM_COMMIT", "\"e9be2c8293e02cc362d603df6b12b019fdb849f2\"")
