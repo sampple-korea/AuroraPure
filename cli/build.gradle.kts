@@ -25,6 +25,30 @@ java {
 application {
     applicationName = "aurora-pure"
     mainClass = "com.aurora.pure.cli.MainKt"
+    // Windows consoles and pipes otherwise fall back to a legacy code page, which turns every
+    // Korean, Japanese, and Chinese message the CLI ships into question marks.
+    applicationDefaultJvmArgs = listOf(
+        "-Dfile.encoding=UTF-8",
+        "-Dstdout.encoding=UTF-8",
+        "-Dstderr.encoding=UTF-8"
+    )
+}
+
+// The version used to be typed into Main.kt and into all four message bundles, so `--version` and
+// the wizard banner kept reporting an older release than the one being built. It is generated from
+// the single value above instead.
+val generatedVersionDirectory = layout.buildDirectory.dir("generated/version")
+
+val generateVersionResource by tasks.registering {
+    val version = providers.provider { project.version.toString() }
+    val output = generatedVersionDirectory
+    inputs.property("version", version)
+    outputs.dir(output)
+    doLast {
+        val file = output.get().file("aurora-pure-version.properties").asFile
+        file.parentFile.mkdirs()
+        file.writeText("version=${version.get()}\n")
+    }
 }
 
 val gplayApiAar by configurations.creating
@@ -65,6 +89,7 @@ tasks.processResources {
     from(extractedGplayApi.map { it.dir("res/raw") }) {
         into("device-profiles")
     }
+    from(generateVersionResource)
 }
 
 tasks.test {

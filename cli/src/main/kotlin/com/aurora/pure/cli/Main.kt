@@ -25,7 +25,7 @@ import picocli.CommandLine.ScopeType
 @Command(
     name = "aurora-pure",
     mixinStandardHelpOptions = true,
-    version = ["Aurora Pure CLI 1.3.0"],
+    versionProvider = CliVersionProvider::class,
     description = ["Interactive, download-only Google Play APK client."],
     subcommands = [
         SearchCommand::class,
@@ -376,11 +376,10 @@ class DoctorCommand : Callable<Int> {
 }
 
 private class InteractiveWizard(private val root: RootCommand) {
-    private val input = BufferedReader(InputStreamReader(System.`in`))
     private val text = root.messages
 
     fun run(): Int {
-        println(text["app.title"])
+        println(text.text("app.title", CliVersion.value))
         println(text["app.subtitle"])
         println()
         val raw = ask(text["prompt.app"])
@@ -391,7 +390,7 @@ private class InteractiveWizard(private val root: RootCommand) {
         val options = DeliveryOptions().resolve()
         val variants = discover(root, app.packageName, options, quiet = false)
         printVariants(variants, text)
-        val selected = promptVariant(variants, text, input)
+        val selected = promptVariant(variants, text)
         status(text["status.languages"])
         val plan = runBlockingCli {
             root.gateway.resolvePlan(
@@ -402,7 +401,7 @@ private class InteractiveWizard(private val root: RootCommand) {
             )
         }
         printPlan(plan, text)
-        if (!confirm(text, input)) return 5
+        if (!confirm(text)) return 5
         val defaultOutput = root.outputDirectory().toString()
         val output = ask(text.text("prompt.output", defaultOutput)).ifBlank { defaultOutput }
         val engine = DownloadEngine(
@@ -444,7 +443,7 @@ private class InteractiveWizard(private val root: RootCommand) {
     private fun ask(prompt: String): String {
         print(prompt)
         System.out.flush()
-        return input.readLine() ?: throw IllegalArgumentException(text["error.input"])
+        return ConsoleInput.readLine() ?: throw IllegalArgumentException(text["error.input"])
     }
 }
 
@@ -456,7 +455,7 @@ private fun discover(
 ): List<DeliveryVariant> {
     if (!quiet) status(root.messages["status.discovering"])
     val lastShown = AtomicLong(0)
-    return runBlockingCli {
+    val result = runBlockingCli {
         root.gateway.discover(
             packageName,
             options.architecture,
@@ -478,6 +477,22 @@ private fun discover(
             }
         }
     }
+    // A throttled scan returns a real but partial matrix. Saying so is the honest option; showing
+    // a subset silently would look like the complete answer.
+    if (result.incomplete) status(root.messages["status.incomplete"])
+    return result.variants
+}
+
+/**
+ * One reader for the whole process. Two `BufferedReader`s over `System.in` do not share a buffer,
+ * so the first would swallow whatever followed the line it returned — with piped input, the answer
+ * to the download prompt disappeared into the reader that asked which variant to use.
+ */
+internal object ConsoleInput {
+    val reader: BufferedReader by lazy { BufferedReader(InputStreamReader(System.`in`)) }
+
+    /** Null means the stream ended, which is never an answer. */
+    fun readLine(): String? = reader.readLine()
 }
 
 private fun selectVariant(
@@ -503,26 +518,30 @@ private fun selectVariant(
             ?: throw IllegalArgumentException(messages["error.variant"])
     }
     if (assumeYes) throw IllegalArgumentException(messages["error.noninteractive"])
-    return promptVariant(variants, messages, BufferedReader(InputStreamReader(System.`in`)))
+    return promptVariant(variants, messages)
 }
 
 private fun promptVariant(
     variants: List<DeliveryVariant>,
-    messages: Messages,
-    input: BufferedReader
+    messages: Messages
 ): DeliveryVariant {
     print(messages.text("prompt.variant", variants.size))
     System.out.flush()
-    val choice = input.readLine()?.trim()?.toIntOrNull()
+    val choice = ConsoleInput.readLine()?.trim()?.toIntOrNull()
         ?.takeIf { it in 1..variants.size }
         ?: throw IllegalArgumentException(messages["error.input"])
     return variants[choice - 1]
 }
 
-private fun confirm(messages: Messages, input: BufferedReader = BufferedReader(InputStreamReader(System.`in`))): Boolean {
+/**
+ * End of stream is not consent. A closed or exhausted stdin used to read as "yes" and start the
+ * download unprompted; a non-interactive run has to pass --yes to say so deliberately.
+ */
+private fun confirm(messages: Messages): Boolean {
     print(messages["prompt.confirm"])
     System.out.flush()
-    return input.readLine()?.trim()?.lowercase(Locale.ROOT) !in setOf("n", "no", "아니요", "いいえ", "否")
+    val answer = ConsoleInput.readLine()?.trim()?.lowercase(Locale.ROOT) ?: return false
+    return answer !in setOf("n", "no", "아니요", "いいえ", "否")
 }
 
 private fun printApps(apps: List<AppInfo>, messages: Messages) {
@@ -544,45 +563,124 @@ private fun printApp(app: AppInfo, messages: Messages) {
     if (app.description.isNotBlank()) println(app.description.replace(Regex("\\s+"), " ").take(500))
 }
 
+/**
+ * Every column used to be pipe-joined at its natural width, so nothing lined up between rows and a
+ * long scan read as a wall of text. Widths are measured across the whole list first, which is what
+ * makes sizes and DPI sets comparable at a glance — the reason to print a table at all.
+ */
 private fun printVariants(variants: List<DeliveryVariant>, messages: Messages) {
-    println(messages["table.header"])
-    variants.withIndex()
-        .groupBy { it.value.versionCode }
+    if (variants.isEmpty()) {
+        println(messages["status.no_results"])
+        return
+    }
+    val rows = variants.mapIndexed { index, variant ->
+        val tag = when {
+            variant.universal -> messages["label.universal"]
+            variant.aggregate -> messages["label.combined_short"]
+            else -> ""
+        }
+        VariantRow(
+            index = "${index + 1}",
+            tag = tag,
+            version = "${variant.versionName} (${variant.versionCode})",
+            architecture = variant.architectures.joinToString("+"),
+            android = "${DeviceProfiles.androidRelease(variant.minSdk)}+ (API ${variant.minSdk})",
+            density = variant.densities.joinToString(","),
+            tested = variant.androidApis.joinToString(",") {
+                "${DeviceProfiles.androidRelease(it)}/$it"
+            },
+            apks = "${variant.artifactCount}",
+            size = formatBytes(variant.totalBytes),
+            variant = variant
+        )
+    }
+    val headers = messages["table.header"].split('|').map(String::trim)
+    val widths = IntArray(VariantRow.COLUMNS) { column ->
+        maxOf(
+            headers.getOrElse(column) { "" }.displayWidth(),
+            rows.maxOf { it.cell(column).displayWidth() }
+        )
+    }
+
+    println(headers.mapIndexed { column, value -> value.padTo(widths[column]) }
+        .joinToString("  ").trimEnd())
+    rows.groupBy { it.variant.versionCode }
         .toSortedMap(reverseOrder())
-        .forEach { (versionCode, indexedVariants) ->
+        .forEach { (versionCode, versionRows) ->
             println()
             println(messages.text(
                 "version.group",
-                indexedVariants.first().value.versionName,
+                versionRows.first().variant.versionName,
                 versionCode.toString()
             ))
-            indexedVariants.forEach { indexedVariant ->
-                val index = indexedVariant.index
-                val variant = indexedVariant.value
-                val version = "${variant.versionName} (${variant.versionCode})"
-                val architecture = variant.architectures.joinToString("+")
-                val android = "${DeviceProfiles.androidRelease(variant.minSdk)}+ (API ${variant.minSdk})"
-                val density = variant.densities.joinToString(",")
-                val tested = variant.androidApis.joinToString(",") { "${DeviceProfiles.androidRelease(it)}/$it" }
-                val label = when {
-                    variant.universal -> "${messages["label.universal"]}: "
-                    variant.aggregate -> "${messages["label.combined"]}: "
-                    else -> ""
-                }
-                println("${index + 1} | $label$version | $architecture | $android | $density | $tested | " +
-                    "${variant.artifactCount} | ${formatBytes(variant.totalBytes)}")
-                println("    id=${variant.id}")
-                variant.profiles
+            versionRows.forEach { row ->
+                println((0 until VariantRow.COLUMNS)
+                    .joinToString("  ") { row.cell(it).padTo(widths[it]) }
+                    .trimEnd())
+                println("    id=${row.variant.id}")
+                row.variant.profiles
                     .groupBy { it.abi.label to it.densityDpi }
                     .toSortedMap(compareBy<Pair<String, Int>>({ it.first }, { it.second }))
                     .forEach { (target, profiles) ->
                         val apis = profiles.map(DeliveryProfile::sdkVersion).distinct().sortedDescending()
-                        println("    ${messages["label.actual_combination"]}: ${target.first} × ${target.second}dpi × " +
-                            apis.joinToString(", ") { "Android ${DeviceProfiles.androidRelease(it)} / API $it" })
+                        println("    ${messages["label.actual_combination"]}: " +
+                            "${target.first} × ${target.second}dpi × " +
+                            apis.joinToString(", ") {
+                                "Android ${DeviceProfiles.androidRelease(it)} / API $it"
+                            })
                     }
             }
         }
 }
+
+private class VariantRow(
+    val index: String,
+    val tag: String,
+    val version: String,
+    val architecture: String,
+    val android: String,
+    val density: String,
+    val tested: String,
+    val apks: String,
+    val size: String,
+    val variant: DeliveryVariant
+) {
+    fun cell(column: Int): String = when (column) {
+        0 -> index
+        1 -> tag
+        2 -> version
+        3 -> architecture
+        4 -> android
+        5 -> density
+        6 -> tested
+        7 -> apks
+        else -> size
+    }
+
+    companion object {
+        const val COLUMNS = 9
+    }
+}
+
+/**
+ * Korean, Japanese, and Chinese glyphs occupy two terminal cells. Padding by character count alone
+ * would leave the translated headers misaligned against the values underneath them.
+ */
+internal fun String.displayWidth(): Int = sumOf { character ->
+    when (Character.UnicodeBlock.of(character)) {
+        Character.UnicodeBlock.HANGUL_SYLLABLES,
+        Character.UnicodeBlock.HANGUL_JAMO,
+        Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO,
+        Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS,
+        Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION,
+        Character.UnicodeBlock.HIRAGANA,
+        Character.UnicodeBlock.KATAKANA,
+        Character.UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS -> 2
+        else -> 1
+    }
+}
+
+internal fun String.padTo(width: Int): String = this + " ".repeat((width - displayWidth()).coerceAtLeast(0))
 
 private fun printPlan(plan: DownloadPlan, messages: Messages) {
     println()
@@ -604,26 +702,76 @@ private class ProgressPrinter(
 ) {
     private var lastNanos = 0L
     private var lastCompleted = -1
+    private val rate = TransferRate()
 
     @Synchronized
     fun update(progress: DownloadProgress) {
         if (!enabled) return
         val now = System.nanoTime()
-        if (progress.completedFiles == lastCompleted && now - lastNanos < 250_000_000L) return
+        if (progress.completedFiles == lastCompleted && now - lastNanos < REPORT_INTERVAL_NANOS) return
         lastNanos = now
         lastCompleted = progress.completedFiles
-        status(messages.text(
+        val speed = rate.sample(progress.downloadedBytes, now)
+        val line = messages.text(
             "status.downloading",
             progress.completedFiles,
             progress.totalFiles,
             formatBytes(progress.downloadedBytes),
             formatBytes(progress.totalBytes)
-        ))
+        )
+        // Byte counts alone say nothing about whether a transfer is worth waiting for.
+        val remaining = progress.totalBytes - progress.downloadedBytes
+        val suffix = when {
+            speed <= 0 -> ""
+            remaining <= 0 -> " · ${formatBytes(speed)}/s"
+            remaining / speed <= 0 -> " · ${formatBytes(speed)}/s"
+            else -> " · ${formatBytes(speed)}/s · " +
+                messages.text("status.remaining", formatDuration(remaining / speed))
+        }
+        status(line + suffix)
     }
 
     fun finish() {
         if (enabled && plan.uniqueArtifacts.isNotEmpty()) System.err.flush()
     }
+
+    private companion object {
+        const val REPORT_INTERVAL_NANOS = 250_000_000L
+    }
+}
+
+/** Smoothed so the reported rate describes the transfer rather than one buffer's timing. */
+private class TransferRate {
+    private var lastBytes = 0L
+    private var lastNanos = 0L
+    private var smoothed = 0.0
+
+    fun sample(bytes: Long, nowNanos: Long): Long {
+        if (lastNanos == 0L) {
+            lastBytes = bytes
+            lastNanos = nowNanos
+            return 0
+        }
+        val elapsed = nowNanos - lastNanos
+        if (elapsed < MIN_SAMPLE_NANOS) return smoothed.toLong()
+        val instant = (bytes - lastBytes).coerceAtLeast(0) * 1_000_000_000.0 / elapsed
+        lastBytes = bytes
+        lastNanos = nowNanos
+        smoothed = if (smoothed == 0.0) instant else smoothed * (1 - ALPHA) + instant * ALPHA
+        return smoothed.toLong()
+    }
+
+    private companion object {
+        const val MIN_SAMPLE_NANOS = 400_000_000L
+        const val ALPHA = 0.35
+    }
+}
+
+/** Deliberately coarse: a remaining time is an estimate, not a measurement. */
+private fun formatDuration(seconds: Long): String = when {
+    seconds < 60 -> "${seconds}s"
+    seconds < 3600 -> "${seconds / 60}m"
+    else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
 }
 
 internal fun parsePackageName(value: String): String? {

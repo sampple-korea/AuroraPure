@@ -21,6 +21,7 @@ import java.util.Base64
 import java.util.Locale
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -30,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 class PlayGateway(
     private val cacheRoot: Path,
@@ -37,6 +39,7 @@ class PlayGateway(
     val http: CliHttpClient = CliHttpClient()
 ) {
     private val artifactCache = ArtifactCache(cacheRoot.resolve("artifacts"), http)
+    private val baseMetadataCache = ConcurrentHashMap<String, BaseMetadata>()
     private val auth = ConcurrentHashMap<String, AuthData>()
     private val credentialsLock = Any()
     @Volatile private var credentials: Credentials? = null
@@ -62,12 +65,13 @@ class PlayGateway(
         density: DensityMode,
         maxSdk: Int = CURRENT_ANDROID_API,
         onProbe: (completed: Int, profile: DeliveryProfile) -> Unit = { _, _ -> }
-    ): List<DeliveryVariant> = withContext(Dispatchers.IO) {
+    ): DiscoveryResult = withContext(Dispatchers.IO) {
         require(maxSdk >= MIN_ANDROID_API) { "Android API must be 21 or newer" }
         val targets = architecture.variants.flatMap { abi ->
             density.densities.map { dpi -> abi to dpi }
         }
         val started = AtomicInteger(0)
+        val throttled = AtomicBoolean(false)
         val snapshots = coroutineScope {
             val limiter = Semaphore(DISCOVERY_PARALLELISM)
             targets.map { (abi, dpi) ->
@@ -91,6 +95,10 @@ class PlayGateway(
                                 if (nextSdk < MIN_ANDROID_API || nextSdk >= sdk) break
                                 sdk = nextSdk
                             } catch (error: Exception) {
+                                if (isRateLimited(error)) {
+                                    throttled.set(true)
+                                    break
+                                }
                                 if (!isUnsupported(error)) throw error
                                 break
                             }
@@ -101,7 +109,11 @@ class PlayGateway(
             }.awaitAll().flatten()
         }
         require(snapshots.isNotEmpty()) {
-            "Google Play returned no APKs for the selected delivery scope"
+            if (throttled.get()) {
+                "Anonymous service is rate limited"
+            } else {
+                "Google Play returned no APKs for the selected delivery scope"
+            }
         }
 
         val groups = snapshots.groupBy { it.signature() }.values
@@ -135,7 +147,7 @@ class PlayGateway(
                 universal = architecture == ArchitectureMode.UNIVERSAL
             )
         }
-        if (aggregate == null) {
+        val resolved = if (aggregate == null) {
             groups.map { variant ->
                 if (architecture == ArchitectureMode.UNIVERSAL &&
                     variant.architectures.toSet() == discoveredArchitectures
@@ -148,7 +160,17 @@ class PlayGateway(
         } else {
             listOf(aggregate) + groups
         }
+        DiscoveryResult(resolved, incomplete = throttled.get())
     }
+
+    /**
+     * Outcome of a scan. [incomplete] means Google Play kept throttling at least one delivery path,
+     * so what came back is a subset of the matrix rather than the whole picture.
+     */
+    data class DiscoveryResult(
+        val variants: List<DeliveryVariant>,
+        val incomplete: Boolean
+    )
 
     suspend fun resolvePlan(
         packageName: String,
@@ -186,6 +208,22 @@ class PlayGateway(
 
     fun cachedArtifact(artifact: Artifact): Path? = artifactCache.find(artifact)
 
+    /**
+     * Google Play answers most probes in a scan with the very same base APK, and the manifest and
+     * split declarations are a pure function of those bytes. Reading and parsing the archive twice
+     * per probe repeats identical work dozens of times per scan, so the result is memoised under
+     * the delivered content identity.
+     */
+    private fun baseMetadata(artifact: Artifact, file: java.io.File): BaseMetadata {
+        val key = artifact.identity() ?: return readBaseMetadata(file)
+        return baseMetadataCache.computeIfAbsent(key) { readBaseMetadata(file) }
+    }
+
+    private fun readBaseMetadata(file: java.io.File) = BaseMetadata(
+        identity = ApkIntrospection.manifest(file),
+        languageSplits = ApkIntrospection.languageSplits(file)
+    )
+
     private suspend fun connect(profile: DeliveryProfile, force: Boolean = false): AuthData =
         withContext(Dispatchers.IO) {
             val existing = auth[profile.id]
@@ -218,7 +256,12 @@ class PlayGateway(
         return try {
             resolveProfileWithAuth(packageName, profile, session, languageCache, resolveLanguages)
         } catch (error: Exception) {
-            if (!isAuthFailure(error)) throw error
+            val throttled = isRateLimited(error)
+            if (!isAuthFailure(error) && !throttled) throw error
+            // Google Play answers a burst of anonymous sessions with HTTP 429, and the cure is the
+            // same as for an expired one: drop the cached session and ask for a new one. Retrying
+            // here means a throttled probe no longer fails the whole scan.
+            if (throttled) delay(RATE_LIMIT_BACKOFF_MS + Random.nextLong(RATE_LIMIT_JITTER_MS))
             auth.clear()
             credentials = null
             resolveProfileWithAuth(
@@ -267,7 +310,8 @@ class PlayGateway(
                 ?: throw IllegalArgumentException("Google Play returned no base APK")
             val baseArtifact = base.toArtifact(profile, app)
             val cachedBase = artifactCache.ensure(baseArtifact).toFile()
-            val identity = ApkIntrospection.manifest(cachedBase)
+            val metadata = baseMetadata(baseArtifact, cachedBase)
+            val identity = metadata.identity
             require(
                 identity.packageName == owner.packageName &&
                     identity.versionCode == owner.versionCode &&
@@ -278,7 +322,7 @@ class PlayGateway(
                 targetSdk = identity.targetSdk.takeIf { it > 0 } ?: app.targetSdk
             }
             val deliveredNames = ownerFiles.map { it.file.name }.toSet()
-            val declarations = ApkIntrospection.languageSplits(cachedBase).filter { declaration ->
+            val declarations = metadata.languageSplits.filter { declaration ->
                 declaration.moduleName.isBlank() || deliveredNames.any { fileName ->
                     val splitName = fileName.removeSuffix(".apk")
                     splitName == declaration.moduleName ||
@@ -517,6 +561,18 @@ class PlayGateway(
             cause is CliHttpClient.ProtocolHttpException && cause.status in setOf(401, 403)
         }
 
+    /** Both Google Play and the anonymous token service answer a burst with a rate limit. */
+    private fun isRateLimited(error: Exception): Boolean =
+        generateSequence<Throwable>(error) { it.cause }.any { cause ->
+            (cause is CliHttpClient.ProtocolHttpException && cause.status == RATE_LIMIT_STATUS) ||
+                cause.message == "Anonymous service is rate limited"
+        }
+
+    private data class BaseMetadata(
+        val identity: ApkIdentity,
+        val languageSplits: List<LanguageSplit>
+    )
+
     private data class Credentials(
         val email: String,
         val token: String,
@@ -581,5 +637,8 @@ class PlayGateway(
         private const val DELIVERY_OK = 1
         private const val DELIVERY_NOT_PURCHASED = 3
         private const val DISCOVERY_PARALLELISM = 4
+        private const val RATE_LIMIT_STATUS = 429
+        private const val RATE_LIMIT_BACKOFF_MS = 1_200L
+        private const val RATE_LIMIT_JITTER_MS = 800L
     }
 }

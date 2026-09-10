@@ -143,12 +143,26 @@ class Messages(language: String) {
         "zh" -> Locale.SIMPLIFIED_CHINESE
         else -> Locale.ENGLISH
     }
-    private val bundle = ResourceBundle.getBundle("messages", locale)
+
+    /**
+     * Without a no-fallback control, `getBundle` consults the JVM default locale before the base
+     * bundle, so asking for English on a Korean or Japanese machine silently returned that machine's
+     * language and `--language en` appeared to do nothing. The requested language is the only one
+     * consulted; English is the base bundle.
+     */
+    private val bundle: ResourceBundle = ResourceBundle.getBundle(
+        "messages",
+        locale,
+        ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES)
+    )
 
     operator fun get(key: String): String = bundle.getString(key)
 
     fun text(key: String, vararg arguments: Any): String =
         MessageFormat(bundle.getString(key), locale).format(arguments)
+
+    /** Exposed so a test can prove no translation has drifted out of sync with English. */
+    internal fun bundleKeys(): Set<String> = bundle.keySet()
 
     companion object {
         fun normalizedLanguage(value: String?): String {

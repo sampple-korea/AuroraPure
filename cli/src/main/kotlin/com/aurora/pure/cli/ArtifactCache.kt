@@ -21,6 +21,16 @@ class ArtifactCache(
 ) {
     private val artifactLocks = ConcurrentHashMap<Path, Any>()
 
+    /**
+     * A complete scan asks for the same base APK once per probe, and each ask used to re-hash the
+     * whole cached file. Once this process has verified a file against a content-addressed identity,
+     * re-verifying it costs a full read of tens of megabytes and proves nothing new, so the size is
+     * rechecked and the digest is not.
+     */
+    private val verified = ConcurrentHashMap<Path, VerifiedEntry>()
+
+    private data class VerifiedEntry(val identity: String, val size: Long)
+
     init {
         Files.createDirectories(root)
     }
@@ -29,7 +39,11 @@ class ArtifactCache(
         val target = pathFor(artifact)
         val lock = artifactLocks.computeIfAbsent(target.toAbsolutePath().normalize()) { Any() }
         return synchronized(lock) {
-            if (isValid(target, artifact)) return@synchronized target
+            if (isAlreadyVerified(target, artifact)) return@synchronized target
+            if (isValid(target, artifact)) {
+                rememberVerified(target, artifact)
+                return@synchronized target
+            }
             require(DeliveryUrlPolicy.isAllowed(artifact.url)) {
                 "Download URL is outside approved Google delivery hosts"
             }
@@ -61,6 +75,7 @@ class ArtifactCache(
                     }
                 require(isValid(partial, artifact)) { "Cached base APK failed integrity verification" }
                 moveIntoPlace(partial, target)
+                rememberVerified(target, artifact)
                 target
             } catch (error: Exception) {
                 Files.deleteIfExists(partial)
@@ -69,7 +84,27 @@ class ArtifactCache(
         }
     }
 
-    fun find(artifact: Artifact): Path? = pathFor(artifact).takeIf { isValid(it, artifact) }
+    fun find(artifact: Artifact): Path? = pathFor(artifact).takeIf {
+        isAlreadyVerified(it, artifact) || isValid(it, artifact)
+    }
+
+    /** Only a content-addressed identity can stand in for a fresh digest. */
+    private fun identityOf(artifact: Artifact): String? = artifact.identity()
+
+    private fun isAlreadyVerified(path: Path, artifact: Artifact): Boolean {
+        val identity = identityOf(artifact) ?: return false
+        val entry = verified[path.toAbsolutePath().normalize()] ?: return false
+        if (entry.identity != identity) return false
+        return runCatching { Files.isRegularFile(path) && Files.size(path) == entry.size }
+            .getOrDefault(false)
+    }
+
+    private fun rememberVerified(path: Path, artifact: Artifact) {
+        val identity = identityOf(artifact) ?: return
+        runCatching {
+            verified[path.toAbsolutePath().normalize()] = VerifiedEntry(identity, Files.size(path))
+        }
+    }
 
     private fun pathFor(artifact: Artifact): Path {
         val identity = artifact.identity() ?: listOf(

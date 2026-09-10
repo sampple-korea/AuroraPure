@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -31,8 +33,14 @@ class CliHttpClient : IHttpClient {
     private val protocolClient = baseBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
+        // Connect and read timeouts bound individual socket operations only, so a response that
+        // trickles a few bytes at a time can hang a metadata request with no upper limit. Every
+        // protocol call is small and short-lived, so it gets a hard ceiling.
+        .callTimeout(PROTOCOL_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
+    // Deliberately without a call timeout: an artifact download is legitimately long-running, and
+    // the read timeout already bounds a stalled transfer.
     val downloadClient: OkHttpClient = baseBuilder()
         .followRedirects(true)
         .followSslRedirects(true)
@@ -156,12 +164,25 @@ class CliHttpClient : IHttpClient {
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        // A scan and a parallel download both talk to a handful of Google hosts. Sharing one pool
+        // lets them reuse each other's warm connections instead of repeating TLS per client, and
+        // lifts the queue off OkHttp's default of five in-flight requests per host - without going
+        // so wide that Google Play answers the burst with HTTP 429.
+        .connectionPool(CONNECTION_POOL)
+        .dispatcher(DISPATCHER)
 
     class ProtocolHttpException(val status: Int) :
         IOException("Google Play request failed (HTTP $status)")
 
     companion object {
         private const val USER_AGENT = "com.aurora.store-4.8.3-75"
+        private const val PROTOCOL_CALL_TIMEOUT_SECONDS = 60L
+
+        private val CONNECTION_POOL = ConnectionPool(16, 5, TimeUnit.MINUTES)
+        private val DISPATCHER = Dispatcher().apply {
+            maxRequests = 32
+            maxRequestsPerHost = 8
+        }
     }
 }
 
