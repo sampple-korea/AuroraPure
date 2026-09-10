@@ -40,6 +40,24 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="market" android:host="details" />
             </intent-filter>
+
+            <!--
+              A Play listing shared from a browser arrives as an https link, not a market:// one.
+              Without this filter the app could only be reached by pasting that link by hand.
+            -->
+            <!--
+              autoVerify stays off on purpose: Aurora Pure does not own play.google.com and must
+              not claim these links. It offers itself in the chooser and nothing more.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="play.google.com" />
+                <data android:pathPrefix="/store/apps/details" />
+            </intent-filter>
         </activity>
     </application>
 

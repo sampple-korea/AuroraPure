@@ -18,9 +18,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.CRC32
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -39,6 +41,24 @@ class RemoteApkSplitReader(
 ) {
     private val cacheLocks = ConcurrentHashMap<String, Mutex>()
 
+    /**
+     * A complete discovery scan probes the same package across every ABI × DPI × Android tier, and
+     * Google Play answers most of those probes with the very same base APK. The manifest and split
+     * declarations are a pure function of those bytes, so the result is memoised under the delivered
+     * content identity: one scan then reads each distinct base APK once instead of once per probe.
+     */
+    private val metadataCache = object : LinkedHashMap<String, ApkDeliveryMetadata>(
+        MAX_MEMO_ENTRIES,
+        0.75f,
+        true
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ApkDeliveryMetadata>) =
+            size > MAX_MEMO_ENTRIES
+    }
+    private val inFlight = ConcurrentHashMap<String, CompletableDeferred<ApkDeliveryMetadata>>()
+    private val memoHits = AtomicInteger(0)
+    private val memoReads = AtomicInteger(0)
+
     data class ApkDeliveryMetadata(
         val identity: ApkManifestReader.Identity,
         val languageSplits: List<LanguageSplit>
@@ -46,7 +66,45 @@ class RemoteApkSplitReader(
 
     suspend fun read(base: ArtifactPlan): List<LanguageSplit> = inspect(base).languageSplits
 
-    suspend fun inspect(base: ArtifactPlan): ApkDeliveryMetadata = withContext(Dispatchers.IO) {
+    /** Reads served from the memo versus reads that actually went to the network, for logging. */
+    data class MemoStats(val hits: Int, val reads: Int)
+
+    fun memoStats() = MemoStats(memoHits.get(), memoReads.get())
+
+    suspend fun inspect(base: ArtifactPlan): ApkDeliveryMetadata {
+        val key = memoKey(base) ?: return inspectUncached(base)
+        memoized(key)?.let {
+            memoHits.incrementAndGet()
+            return it
+        }
+
+        val fresh = CompletableDeferred<ApkDeliveryMetadata>()
+        inFlight.putIfAbsent(key, fresh)?.let { leader ->
+            memoHits.incrementAndGet()
+            return leader.await()
+        }
+        memoReads.incrementAndGet()
+        try {
+            val metadata = inspectUncached(base)
+            synchronized(metadataCache) { metadataCache[key] = metadata }
+            fresh.complete(metadata)
+            return metadata
+        } catch (throwable: Throwable) {
+            fresh.completeExceptionally(throwable)
+            throw throwable
+        } finally {
+            inFlight.remove(key, fresh)
+        }
+    }
+
+    private fun memoized(key: String): ApkDeliveryMetadata? =
+        synchronized(metadataCache) { metadataCache[key] }
+
+    /** Only a hash-backed identity proves two probes really delivered identical bytes. */
+    private fun memoKey(base: ArtifactPlan): String? =
+        if (base.sha256.isBlank() && base.sha1.isBlank()) null else cacheKey(base)
+
+    private suspend fun inspectUncached(base: ArtifactPlan): ApkDeliveryMetadata = withContext(Dispatchers.IO) {
         require(base.type == "BASE" && base.size > MIN_ZIP_BYTES) {
             "Google Play returned invalid base APK metadata"
         }
@@ -236,6 +294,7 @@ class RemoteApkSplitReader(
         private const val MANIFEST_ENTRY = "AndroidManifest.xml"
         private val CONTENT_RANGE = Regex("^bytes (\\d+)-(\\d+)/(\\d+)$")
         private const val MIN_ZIP_BYTES = 22L
+        private const val MAX_MEMO_ENTRIES = 48
         private const val MAX_EOCD_BYTES = 65_557
         private const val MAX_DIRECTORY_BYTES = 16 * 1024 * 1024
         private const val MAX_DOCUMENT_BYTES = 8 * 1024 * 1024

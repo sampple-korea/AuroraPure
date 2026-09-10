@@ -17,6 +17,7 @@ import com.aurora.pure.data.DeliveryProfile
 import com.aurora.pure.data.DensityChoice
 import java.util.Properties
 import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
 
 object DeviceProfile {
     /**
@@ -80,11 +81,20 @@ object DeviceProfile {
         }
     }
 
+    private val localesValue: String by lazy { allPlayLocales.joinToString(",") }
+
+    /**
+     * A discovery scan asks for dozens of profiles that differ only in ABI, density, and API level.
+     * Re-reading and re-parsing the bundled reference device for every one of them is pure overhead,
+     * so each raw profile is parsed once and then copied per probe.
+     */
+    private val referenceProfiles = ConcurrentHashMap<ArchitectureVariant, Properties>()
+
     fun properties(context: Context, profile: DeliveryProfile): Properties = Properties().apply {
         // Foreign ABI discovery needs a coherent reference device, rather than a native
         // ARM fingerprint with only its Platforms field changed. These profiles ship in
         // the pinned GPlayApi AAR and are then narrowed to the exact ABI/DPI/API probe.
-        context.resources.openRawResource(profileResource(profile.variant)).use(::load)
+        putAll(referenceProfile(context, profile.variant))
         setProperty(
             "UserReadableName",
             "Aurora Pure ${profile.variant.archiveDirectory} ${profile.densityDpi}dpi API ${profile.sdkVersion}"
@@ -93,9 +103,16 @@ object DeviceProfile {
         setProperty("Build.VERSION.RELEASE", androidRelease(profile.sdkVersion))
         setProperty("Screen.Density", profile.densityDpi.toString())
         setProperty("Platforms", profile.platforms.joinToString(","))
-        setProperty("Locales", allPlayLocales.joinToString(","))
+        setProperty("Locales", localesValue)
         setProperty("TimeZone", TimeZone.getDefault().id)
     }
+
+    private fun referenceProfile(context: Context, variant: ArchitectureVariant): Properties =
+        referenceProfiles.getOrPut(variant) {
+            Properties().apply {
+                context.resources.openRawResource(profileResource(variant)).use(::load)
+            }
+        }
 
     private fun profileResource(variant: ArchitectureVariant): Int = when (variant) {
         ArchitectureVariant.ARM_64 -> GPlayApiR.raw.gplayapi_px_9a
